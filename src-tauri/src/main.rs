@@ -45,7 +45,7 @@ fn main() {
         .setup(|app| {
             #[cfg(target_os = "macos")]
             {
-                let menu = tauri::menu::Menu::default(app)?;
+                let menu = tauri::menu::Menu::default(app.handle())?;
                 app.set_menu(menu)?;
             }
 
