@@ -1,0 +1,343 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: 'Inter', sans-serif;
+  --font-display: 'Outfit', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  /* Cores e animações customizadas */
+  --color-substrate-overlay: var(--substrate-overlay);
+  --color-border-strong: var(--border-strong);
+  --color-accent: var(--accent);
+  --color-accent-bright: var(--accent-bright);
+  --color-accent-dim: var(--accent-dim);
+  --color-accent-muted: var(--accent-muted);
+  --color-accent-contrast: var(--accent-contrast);
+  --color-danger: var(--danger);
+  --color-danger-muted: var(--danger-muted);
+  --color-warning: var(--warning);
+  --color-warning-muted: var(--warning-muted);
+  --color-substrate-base: var(--substrate-base);
+  --color-substrate-surface: var(--substrate-surface);
+  --color-substrate-raised: var(--substrate-raised);
+  --color-substrate-void: var(--substrate-void);
+  --color-border-subtle: var(--border-subtle);
+  --color-border-default: var(--border-default);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+  --color-text-faint: var(--text-faint);
+  --color-tag: var(--tag);
+  --color-tag-muted: var(--tag-muted);
+
+  --animate-pulse-slow: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-skeleton-pulse: skeleton-pulse 2s ease-in-out infinite;
+}
+
+@font-face {
+  font-family: 'Inter';
+  src: url('./assets/fonts/Inter-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Inter';
+  src: url('./assets/fonts/Inter-Medium.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Inter';
+  src: url('./assets/fonts/Inter-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Outfit';
+  src: url('./assets/fonts/Outfit-Variable.ttf') format('truetype');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('./assets/fonts/jetbrains-mono-latin-400-normal.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('./assets/fonts/jetbrains-mono-latin-500-normal.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('./assets/fonts/jetbrains-mono-latin-700-normal.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('./assets/fonts/jetbrains-mono-latin-400-italic.woff2') format('woff2');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+/* Configurações de Variáveis de Tema (Offline & Local) */
+:root {
+  color-scheme: light dark;
+}
+
+/* Tema Bioluminescent Dark (Default) */
+html.dark {
+  --text-primary: #E7ECE9;
+  --text-secondary: #9FACA6;
+  --text-muted: #66726C;
+  --text-faint: #404843;
+
+  --accent: #4FE6AE;
+  --accent-bright: #6FF0C2;
+  --accent-dim: #2E8E6F;
+  --accent-contrast: #07100C;
+
+  --substrate-overlay: #202925;
+  --border-strong: #3A453E;
+  --accent-muted: #15302A;
+  --danger: #ED7361;
+  --danger-muted: #36211D;
+  --warning: #E6B45C;
+  --warning-muted: #342B1A;
+
+  /* Novos tokens semânticos do DS §4.1 */
+  --substrate-base: #0C100E;
+  --substrate-surface: #111613;
+  --substrate-raised: #19201C;
+  --substrate-void: #080B0A;
+  --border-subtle: #1C231F;
+  --border-default: #283029;
+  --tag: #B79CF0;
+  --tag-muted: #241F36;
+}
+
+/* Tema Clean Light */
+html.light {
+  --text-primary: #161B18;
+  --text-secondary: #515A55;
+  --text-muted: #828B86;
+  --text-faint: #AAB2AD;
+
+  --accent: #098056;
+  --accent-bright: #06734D;
+  --accent-dim: #5DC4A1;
+  --accent-contrast: #FFFFFF;
+
+  --substrate-overlay: #FFFFFF;
+  --border-strong: #C2C9C5;
+  --accent-muted: #DCF3EA;
+  --danger: #D14B38;
+  --danger-muted: #FBE6E2;
+  --warning: #C98A1E;
+  --warning-muted: #FAF0DC;
+
+  /* Novos tokens semânticos do DS §4.1 */
+  --substrate-base: #F3F5F4;
+  --substrate-surface: #FFFFFF;
+  --substrate-raised: #FAFBFA;
+  --substrate-void: #EAEEEC;
+  --border-subtle: #EAEDEB;
+  --border-default: #DCE1DE;
+  --tag: #7B5BD1;
+  --tag-muted: #ECE6FA;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background-color: var(--substrate-base);
+  color: var(--text-primary);
+  overflow: hidden;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
+}
+
+/* Glassmorphism Otimizado (backdrop-filter leve) */
+.glass-panel {
+  background: var(--substrate-surface);
+  border: 1px solid var(--border-subtle);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.glass-card {
+  background: var(--substrate-raised);
+  border: 1px solid var(--border-default);
+  transition:
+    transform 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.glass-card:hover {
+  border-color: var(--accent);
+}
+
+/* Wiki-links styling */
+.cm-wiki-link {
+  cursor: pointer;
+  font-weight: 500;
+  transition: opacity 0.2s ease;
+}
+
+.cm-wiki-link:hover {
+  opacity: 0.8;
+  text-decoration: underline;
+}
+
+.cm-wiki-link-resolved {
+  color: var(--accent);
+}
+
+.cm-wiki-link-unresolved {
+  color: var(--accent);
+  border-bottom: 1px dashed var(--accent);
+}
+
+/* Autocomplete popover styling */
+.cm-tooltip-autocomplete {
+  background-color: var(--substrate-overlay) !important;
+  border: 1px solid var(--border-default) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3) !important;
+  font-family: var(--font-sans) !important;
+  overflow: hidden !important;
+}
+
+.cm-tooltip-autocomplete ul {
+  max-height: 200px !important;
+}
+
+.cm-tooltip-autocomplete li {
+  padding: 6px 12px !important;
+  color: var(--text-secondary) !important;
+  cursor: pointer !important;
+}
+
+.cm-tooltip-autocomplete li[aria-selected] {
+  background-color: var(--accent) !important;
+  color: var(--accent-contrast) !important;
+}
+
+/* Blink animation for file reloading (GPU-accelerated overlay) */
+@keyframes blink-overlay {
+  0% {
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.4;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.cm-editor {
+  position: relative;
+}
+
+.cm-editor::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-color: var(--accent);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 10;
+  border-radius: inherit;
+}
+
+.cm-editor.animate-blink::after {
+  animation: blink-overlay 0.6s ease-out;
+}
+
+/* Scrollbars customizadas finas */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-default);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+@keyframes skeleton-pulse {
+  0%, 100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.75;
+  }
+}
+
+/* A11y Focus Rings (DS §12) - Visible on keyboard navigation */
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible,
+.cm-editor:focus-visible,
+[role="button"]:focus-visible {
+  outline: 2px solid var(--accent) !important;
+  outline-offset: 2px !important;
+}
+
+/* Global prefers-reduced-motion (DS §4.5) */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-delay: -1ms !important;
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0s !important;
+    transition-delay: 0s !important;
+  }
+
+  /* Preserve only simple opacity crossfades */
+  .transition-all,
+  [class*="transition-"] {
+    transition-property: opacity, color, background-color, border-color !important;
+    transition-duration: 0.1s !important;
+  }
+
+  /* Disable zoom, scale, and organic pulses */
+  .active\:scale-95:active,
+  .hover\:scale-105:hover,
+  .active\:scale-90:active {
+    transform: none !important;
+  }
+}
+

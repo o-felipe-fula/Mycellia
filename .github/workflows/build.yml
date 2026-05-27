@@ -1,0 +1,44 @@
+name: 'Build Mycellia'
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Rust Stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install Frontend Dependencies
+        run: npm ci
+
+      - name: Build Tauri App
+        id: tauri-build
+        uses: tauri-apps/tauri-action@v0
+
+      - name: Upload Bundles
+        uses: actions/upload-artifact@v4
+        with:
+          name: mycellia-${{ matrix.platform }}-bundle
+          path: ${{ join(fromJSON(steps.tauri-build.outputs.artifactPaths), '\n') }}

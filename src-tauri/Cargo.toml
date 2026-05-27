@@ -1,0 +1,37 @@
+[package]
+name = "mycellia"
+version = "0.5.0"
+description = "Mycellia Knowledge Editor"
+authors = ["Felipe Fulanetti"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[build-dependencies]
+tauri-build = { version = "2.0.0", features = [] }
+
+[dependencies]
+tauri = { version = "2.0.0", features = ["protocol-asset"] }
+tauri-plugin-dialog = "2.0.0"
+tauri-plugin-opener = "2.0.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rusqlite = { version = "0.31.0", features = ["bundled"] }
+pulldown-cmark = "0.11"
+trash = "5.1.0"
+yaml-rust2 = "0.8.0"
+notify = "6.1.1"
+notify-debouncer-full = "0.3.1"
+sha2 = "0.10"
+base64 = "0.22.1"
+
+[dev-dependencies]
+tauri = { version = "2.0.0", features = ["test"] }
+
+
+[profile.release]
+panic = "abort" # Strip expensive panic handlers
+codegen-units = 1 # Optimize for size/speed
+lto = true # Link Time Optimization
+opt-level = "z" # Optimize for size
+strip = true # Strip symbols from binary

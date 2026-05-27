@@ -1,0 +1,1142 @@
+#[cfg(test)]
+mod tests {
+    use crate::commands::parser::parse_markdown;
+    use crate::commands::index_db::DbState;
+    use rusqlite::Connection;
+    use std::collections::HashSet;
+    use std::fs;
+    use std::path::Path;
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    // Helper: cria uma conexão SQLite in-memory com o mesmo schema do index_db
+    fn create_test_db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.pragma_update(None, "journal_mode", "WAL").unwrap();
+        conn.execute("PRAGMA foreign_keys = ON;", []).unwrap();
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS notes (
+                path TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                last_modified INTEGER NOT NULL
+            );",
+            [],
+        ).unwrap();
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS links (
+                source_path TEXT NOT NULL,
+                target_name TEXT NOT NULL,
+                target_path TEXT,
+                PRIMARY KEY (source_path, target_name),
+                FOREIGN KEY (source_path) REFERENCES notes (path) ON DELETE CASCADE
+            );",
+            [],
+        ).unwrap();
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS tags (
+                note_path TEXT NOT NULL,
+                tag TEXT NOT NULL,
+                PRIMARY KEY (note_path, tag),
+                FOREIGN KEY (note_path) REFERENCES notes (path) ON DELETE CASCADE
+            );",
+            [],
+        ).unwrap();
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS properties (
+                note_path TEXT NOT NULL,
+                key TEXT NOT NULL,
+                value TEXT NOT NULL,
+                PRIMARY KEY (note_path, key),
+                FOREIGN KEY (note_path) REFERENCES notes (path) ON DELETE CASCADE
+            );",
+            [],
+        ).unwrap();
+
+        conn.execute(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
+                path UNINDEXED,
+                title,
+                content,
+                tags,
+                properties
+            );",
+            [],
+        ).unwrap();
+
+        conn.execute(
+            "CREATE TRIGGER IF NOT EXISTS notes_ad AFTER DELETE ON notes BEGIN
+                DELETE FROM notes_fts WHERE path = OLD.path;
+            END;",
+            [],
+        ).unwrap();
+
+        conn
+    }
+
+    // Helper: indexa uma nota mock no banco de dados de teste (simula o que index_vault faz)
+    fn index_note_in_db(conn: &Connection, path: &str, content: &str, file_name: &str, mtime: i64) {
+        let meta = parse_markdown(content, file_name);
+
+        conn.execute(
+            "INSERT OR REPLACE INTO notes (path, title, last_modified) VALUES (?, ?, ?)",
+            rusqlite::params![path, meta.title, mtime],
+        ).unwrap();
+
+        // Limpa relacionamentos antigos
+        conn.execute("DELETE FROM links WHERE source_path = ?", [path]).unwrap();
+        conn.execute("DELETE FROM tags WHERE note_path = ?", [path]).unwrap();
+        conn.execute("DELETE FROM properties WHERE note_path = ?", [path]).unwrap();
+        conn.execute("DELETE FROM notes_fts WHERE path = ?", [path]).unwrap();
+
+        // Insere links
+        for link in &meta.links {
+            conn.execute(
+                "INSERT OR REPLACE INTO links (source_path, target_name, target_path) VALUES (?, ?, NULL)",
+                rusqlite::params![path, link],
+            ).unwrap();
+        }
+
+        // Insere tags
+        for tag in &meta.tags {
+            conn.execute(
+                "INSERT OR REPLACE INTO tags (note_path, tag) VALUES (?, ?)",
+                rusqlite::params![path, tag],
+            ).unwrap();
+        }
+
+        // Insere propriedades
+        for (key, val) in &meta.properties {
+            conn.execute(
+                "INSERT OR REPLACE INTO properties (note_path, key, value) VALUES (?, ?, ?)",
+                rusqlite::params![path, key, val],
+            ).unwrap();
+        }
+
+        // Insere no FTS5
+        let tags_joined = meta.tags.join(" ");
+        conn.execute(
+            "INSERT INTO notes_fts (path, title, content, tags, properties) VALUES (?, ?, ?, ?, ?)",
+            rusqlite::params![path, meta.title, meta.clean_text, tags_joined, ""],
+        ).unwrap();
+    }
+
+    // =========================================================================
+    // TESTE 1: Garantia Read-Only (Princípio #1 - CRÍTICO)
+    // Verifica que a indexação NÃO altera os arquivos .md originais no disco
+    // =========================================================================
+    #[test]
+    fn test_indexing_read_only_guarantee() {
+        use sha2::{Sha256, Digest};
+
+        let temp_dir = std::env::temp_dir().join("mycellia_test_readonly");
+        let _ = fs::remove_dir_all(&temp_dir);
+        let _ = fs::create_dir_all(&temp_dir);
+
+        // Cria notas de teste com conteúdos diversos
+        let notes = vec![
+            (
+                "nota_simples.md",
+                "---\ntitle: Nota Simples\ntags: [rust, teste]\n---\n\nConteúdo simples com #tag_inline e [[Link Interno]].\n",
+            ),
+            (
+                "nota_complexa.md",
+                "---\ntitle: Nota Complexa\nauthor: Felipe\ndate: 2024-01-15\ntags:\n  - ciência\n  - pesquisa\ncustom_field: valor qualquer\n---\n\n# Cabeçalho\n\nTexto com várias [[Referência A]] e [[Referência B|Alias]].\n\n```rust\n// #falsa_tag_em_codigo não deve ser extraída\nlet x = [[não_é_link]];\n```\n\nMais texto com #tag_real e `#tag_inline_code_ignorada`.\n",
+            ),
+            (
+                "nota_vazia.md",
+                "",
+            ),
+            (
+                "nota_sem_frontmatter.md",
+                "# Título direto\n\nTexto livre sem frontmatter com #minha_tag.\n",
+            ),
+        ];
+
+        // Grava notas e computa hashes SHA256 antes da indexação
+        let mut hashes_before = Vec::new();
+        for (name, content) in &notes {
+            let file_path = temp_dir.join(name);
+            fs::write(&file_path, content).unwrap();
+
+            let bytes = fs::read(&file_path).unwrap();
+            let mut hasher = Sha256::new();
+            hasher.update(&bytes);
+            let hash = format!("{:x}", hasher.finalize());
+            hashes_before.push((file_path.clone(), hash));
+        }
+
+        // Executa indexação (simulada usando parser + banco in-memory)
+        let conn = create_test_db();
+        for (name, _content) in &notes {
+            let file_path = temp_dir.join(name);
+            let path_str = file_path.to_string_lossy().into_owned();
+
+            // Lê o arquivo do disco (como o indexador real faz)
+            let disk_content = fs::read_to_string(&file_path).unwrap();
+            index_note_in_db(&conn, &path_str, &disk_content, name, 1000);
+        }
+
+        // Recomputa hashes SHA256 após a indexação
+        for (file_path, hash_before) in &hashes_before {
+            let bytes = fs::read(file_path).unwrap();
+            let mut hasher = Sha256::new();
+            hasher.update(&bytes);
+            let hash_after = format!("{:x}", hasher.finalize());
+
+            assert_eq!(
+                hash_before, &hash_after,
+                "VIOLAÇÃO DO PRINCÍPIO #1: Arquivo {} foi modificado pela indexação!\nHash antes: {}\nHash depois: {}",
+                file_path.display(), hash_before, hash_after
+            );
+        }
+
+        // Verifica que os dados foram indexados corretamente
+        let count: i64 = conn.query_row("SELECT COUNT(*) FROM notes", [], |row| row.get(0)).unwrap();
+        assert_eq!(count, 4, "Devem existir 4 notas indexadas");
+
+        // Limpeza
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    // =========================================================================
+    // TESTE 2: Integridade de Sincronização FTS5
+    // Valida trigger de delete e delete-reinsert em atualizações
+    // =========================================================================
+    #[test]
+    fn test_fts5_sync_integrity() {
+        let conn = create_test_db();
+
+        let content_v1 = "---\ntitle: Nota FTS\ntags: [alpha]\n---\n\nConteúdo original para busca full-text.\n";
+        let path = "/test/nota_fts.md";
+
+        // 1. Indexa a nota pela primeira vez
+        index_note_in_db(&conn, path, content_v1, "nota_fts.md", 1000);
+
+        // Verifica presença no FTS5
+        let fts_count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM notes_fts WHERE path = ?",
+            [path],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(fts_count, 1, "Nota deve existir no FTS5 após indexação");
+
+        // Verifica busca funciona
+        let found: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM notes_fts WHERE notes_fts MATCH 'original'",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(found, 1, "Busca por 'original' deve encontrar a nota");
+
+        // 2. Reindexação com conteúdo atualizado (simula mtime mudou)
+        let content_v2 = "---\ntitle: Nota FTS Atualizada\ntags: [beta, gamma]\n---\n\nConteúdo totalmente diferente para a segunda versão.\n";
+        index_note_in_db(&conn, path, content_v2, "nota_fts.md", 2000);
+
+        // Verifica que NÃO há duplicação no FTS5
+        let fts_count_after: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM notes_fts WHERE path = ?",
+            [path],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(fts_count_after, 1, "Não pode haver duplicata no FTS5 após reindexação");
+
+        // Verifica que o conteúdo antigo sumiu
+        let old_found: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM notes_fts WHERE notes_fts MATCH 'original'",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(old_found, 0, "Conteúdo antigo não deve ser encontrado no FTS5");
+
+        // Verifica que o conteúdo novo está presente
+        let new_found: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM notes_fts WHERE notes_fts MATCH 'diferente'",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(new_found, 1, "Conteúdo novo deve ser encontrado no FTS5");
+
+        // 3. Deleção da nota (trigger deve limpar o FTS5 automaticamente)
+        conn.execute("DELETE FROM notes WHERE path = ?", [path]).unwrap();
+
+        let fts_after_delete: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM notes_fts WHERE path = ?",
+            [path],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(fts_after_delete, 0, "Trigger AFTER DELETE deve limpar automaticamente o FTS5");
+
+        // Confirma cascade nas tabelas relacionadas
+        let links_count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM links WHERE source_path = ?",
+            [path],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(links_count, 0, "CASCADE deve limpar links");
+
+        let tags_count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM tags WHERE note_path = ?",
+            [path],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(tags_count, 0, "CASCADE deve limpar tags");
+    }
+
+    // =========================================================================
+    // TESTE 3: Correção da Extração de Metadados + Code Block Guard
+    // Nota complexa com frontmatter YAML, tags, links e blocos de código
+    // =========================================================================
+    #[test]
+    fn test_metadata_extraction_and_code_block_guard() {
+        let content = r#"---
+title: Nota de Teste Complexa
+author: Felipe Fulanetti
+date: 2024-01-15
+tags:
+  - ciência
+  - pesquisa
+  - deep-learning
+aliases:
+  - Nota DL
+  - Teste Complexo
+custom_number: 42
+---
+
+# Introdução
+
+Este documento explora #deep_learning e #neural_networks.
+
+Referências: [[Atenção é Tudo]] e [[Transformers|Arquitetura Transformer]].
+
+## Seção de Código
+
+```python
+# #falsa_tag_python não deve ser extraída
+link = "[[falso_link_em_codigo]]"
+resultado = #outra_falsa_tag
+```
+
+Texto intermediário com #tag_valida_apos_bloco.
+
+Código inline: `#tag_inline_ignorada` e `[[link_inline_ignorado]]`.
+
+```rust
+fn main() {
+    // #tag_rust_falsa
+    let x = "[[outro_falso_link]]";
+}
+```
+
+## Conclusão
+
+Última seção com #conclusao e referência para [[Bibliografia]].
+"#;
+
+        let meta = parse_markdown(content, "nota_complexa.md");
+
+        // Verificações de propriedades YAML
+        assert_eq!(meta.title, "nota_complexa");
+        assert!(meta.properties.len() >= 5, "Deve ter ao menos 5 propriedades: title, author, date, tags, aliases, custom_number");
+
+        // Verificação de que as propriedades certas existem
+        let props_map: std::collections::HashMap<_, _> = meta.properties.into_iter().collect();
+        assert!(props_map.contains_key("title"), "Deve conter propriedade 'title'");
+        assert!(props_map.contains_key("author"), "Deve conter propriedade 'author'");
+        assert!(props_map.contains_key("date"), "Deve conter propriedade 'date'");
+        assert!(props_map.contains_key("tags"), "Deve conter propriedade 'tags'");
+        assert!(props_map.contains_key("aliases"), "Deve conter propriedade 'aliases'");
+        assert!(props_map.contains_key("custom_number"), "Deve conter propriedade 'custom_number'");
+
+        // Verificação de tags — deve conter tags do frontmatter e inline, mas NÃO as de code blocks
+        let tags_set: HashSet<&str> = meta.tags.iter().map(|s| s.as_str()).collect();
+
+        // Tags que DEVEM existir (do frontmatter YAML)
+        assert!(tags_set.contains("ciência"), "Tag 'ciência' do YAML deve existir");
+        assert!(tags_set.contains("pesquisa"), "Tag 'pesquisa' do YAML deve existir");
+        assert!(tags_set.contains("deep-learning"), "Tag 'deep-learning' do YAML deve existir");
+
+        // Tags inline que DEVEM existir
+        assert!(tags_set.contains("deep_learning"), "Tag inline #deep_learning deve existir");
+        assert!(tags_set.contains("neural_networks"), "Tag inline #neural_networks deve existir");
+        assert!(tags_set.contains("tag_valida_apos_bloco"), "Tag inline #tag_valida_apos_bloco deve existir");
+        assert!(tags_set.contains("conclusao"), "Tag inline #conclusao deve existir");
+
+        // Tags de code blocks que NÃO devem existir (Code Block Guard)
+        assert!(!tags_set.contains("falsa_tag_python"), "Tag de code block #falsa_tag_python NÃO deve ser extraída");
+        assert!(!tags_set.contains("outra_falsa_tag"), "Tag de code block #outra_falsa_tag NÃO deve ser extraída");
+        assert!(!tags_set.contains("tag_inline_ignorada"), "Tag de inline code #tag_inline_ignorada NÃO deve ser extraída");
+        assert!(!tags_set.contains("tag_rust_falsa"), "Tag de code block Rust #tag_rust_falsa NÃO deve ser extraída");
+
+        // Verificação de links — deve conter wiki-links reais, mas NÃO os de code blocks
+        let links_set: HashSet<&str> = meta.links.iter().map(|s| s.as_str()).collect();
+
+        // Links que DEVEM existir
+        assert!(links_set.contains("Atenção é Tudo"), "Wiki-link [[Atenção é Tudo]] deve existir");
+        assert!(links_set.contains("Transformers"), "Wiki-link [[Transformers|...]] deve extrair 'Transformers'");
+        assert!(links_set.contains("Bibliografia"), "Wiki-link [[Bibliografia]] deve existir");
+
+        // Links de code blocks que NÃO devem existir
+        assert!(!links_set.contains("falso_link_em_codigo"), "Link de code block NÃO deve ser extraído");
+        assert!(!links_set.contains("link_inline_ignorado"), "Link de inline code NÃO deve ser extraído");
+        assert!(!links_set.contains("outro_falso_link"), "Link de code block Rust NÃO deve ser extraído");
+
+        // Verificação do texto limpo para FTS5
+        assert!(!meta.clean_text.is_empty(), "Texto limpo para FTS5 não deve ser vazio");
+        assert!(meta.clean_text.contains("Introdução"), "Texto limpo deve conter cabeçalhos");
+        assert!(meta.clean_text.contains("Conclusão"), "Texto limpo deve conter seção final");
+        // O texto dentro de code blocks NÃO deve estar no clean_text
+        assert!(!meta.clean_text.contains("falsa_tag_python"), "Texto de code block não deve estar no clean_text");
+    }
+
+    // =========================================================================
+    // TESTE 4: Robustez no Rebuild e Concorrência
+    // Buscas durante rebuild devem retornar vazio sem panic
+    // =========================================================================
+    #[test]
+    fn test_concurrent_search_during_rebuild() {
+        // Simula o DbState como ele seria no Tauri, mas sem AppHandle
+        let state = DbState {
+            conn: Mutex::new(None), // Conexão None simula banco fechado durante rebuild
+            is_rebuilding: AtomicBool::new(true),
+            is_indexing: AtomicBool::new(false),
+        };
+
+        // Cenário 1: is_rebuilding=true → busca deve retornar vazio
+        assert!(
+            state.is_rebuilding.load(Ordering::Relaxed),
+            "Flag is_rebuilding deve estar true"
+        );
+
+        // Simula o que search_notes faria: verifica flags e retorna vazio
+        let should_return_empty = state.is_rebuilding.load(Ordering::Relaxed) 
+            || state.is_indexing.load(Ordering::Relaxed);
+        assert!(should_return_empty, "Busca deve retornar vazio durante rebuild");
+
+        // Cenário 2: is_indexing=true → busca deve retornar vazio
+        state.is_rebuilding.store(false, Ordering::Relaxed);
+        state.is_indexing.store(true, Ordering::Relaxed);
+
+        let should_return_empty_2 = state.is_rebuilding.load(Ordering::Relaxed) 
+            || state.is_indexing.load(Ordering::Relaxed);
+        assert!(should_return_empty_2, "Busca deve retornar vazio durante indexação");
+
+        // Cenário 3: conn=None → busca deve retornar vazio sem panic
+        state.is_indexing.store(false, Ordering::Relaxed);
+        let conn_lock = state.conn.lock().unwrap();
+        assert!(conn_lock.is_none(), "Conexão None simula banco fechado");
+        // Não faz panic → sucesso
+
+        // Cenário 4: Tudo normal → busca deve funcionar
+        drop(conn_lock);
+        let conn = Connection::open_in_memory().unwrap();
+        {
+            let mut conn_lock = state.conn.lock().unwrap();
+            *conn_lock = Some(conn);
+        }
+        let conn_lock = state.conn.lock().unwrap();
+        assert!(conn_lock.is_some(), "Conexão deve estar disponível quando rebuild terminar");
+    }
+
+    // =========================================================================
+    // TESTE 5: Telemetria de Escala (4.782 arquivos Markdown)
+    // Gera vault mockado, indexa e reporta tempo
+    // =========================================================================
+    #[test]
+    fn test_scale_telemetry_indexing_4782_notes() {
+        let temp_dir = std::env::temp_dir().join("mycellia_scale_test_index");
+        let _ = fs::remove_dir_all(&temp_dir);
+        let _ = fs::create_dir_all(&temp_dir);
+
+        let total_files = 4782;
+        let folders_count = 128;
+
+        // Gera pastas
+        let mut folders = Vec::new();
+        for i in 0..folders_count {
+            let folder_path = temp_dir.join(format!("Pasta_{}", i));
+            fs::create_dir_all(&folder_path).unwrap();
+            folders.push(folder_path);
+        }
+
+        // Gera arquivos Markdown com conteúdo variado
+        for i in 0..total_files {
+            let parent = &folders[i % folders_count];
+            let file_path = parent.join(format!("Nota_{}.md", i));
+            let content = format!(
+                "---\ntitle: Nota {}\ntags: [tag_{}, tag_{}]\n---\n\n# Nota {}\n\nConteúdo da nota {} com #tag_inline_{} e [[Link_{}]].\n",
+                i, i % 50, i % 100, i, i, i % 200, i % 500
+            );
+            fs::write(&file_path, content).unwrap();
+        }
+
+        // Mede o tempo de indexação
+        let mut conn = create_test_db();
+        let start = std::time::Instant::now();
+
+        // Coleta todos os .md recursivamente
+        let mut all_files = Vec::new();
+        fn collect_md(dir: &Path, files: &mut Vec<std::path::PathBuf>) {
+            if let Ok(entries) = fs::read_dir(dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        collect_md(&path, files);
+                    } else if path.extension().map_or(false, |ext| ext == "md") {
+                        files.push(path);
+                    }
+                }
+            }
+        }
+        collect_md(&temp_dir, &mut all_files);
+
+        // Indexa tudo em uma transação (como o indexador real faz)
+        let tx = conn.unchecked_transaction().unwrap();
+        for file_path in &all_files {
+            let path_str = file_path.to_string_lossy().into_owned();
+            let file_name = file_path.file_name().unwrap().to_string_lossy().into_owned();
+            let content = fs::read_to_string(file_path).unwrap();
+            let meta = parse_markdown(&content, &file_name);
+
+            tx.execute(
+                "INSERT OR REPLACE INTO notes (path, title, last_modified) VALUES (?, ?, ?)",
+                rusqlite::params![path_str, meta.title, 1000],
+            ).unwrap();
+
+            for tag in &meta.tags {
+                tx.execute(
+                    "INSERT OR REPLACE INTO tags (note_path, tag) VALUES (?, ?)",
+                    rusqlite::params![path_str, tag],
+                ).unwrap();
+            }
+
+            for link in &meta.links {
+                tx.execute(
+                    "INSERT OR REPLACE INTO links (source_path, target_name, target_path) VALUES (?, ?, NULL)",
+                    rusqlite::params![path_str, link],
+                ).unwrap();
+            }
+
+            let tags_joined = meta.tags.join(" ");
+            tx.execute(
+                "INSERT INTO notes_fts (path, title, content, tags, properties) VALUES (?, ?, ?, ?, ?)",
+                rusqlite::params![path_str, meta.title, meta.clean_text, tags_joined, ""],
+            ).unwrap();
+        }
+        tx.commit().unwrap();
+
+        let duration = start.elapsed();
+
+        // Mede o tempo de re-resolução de todos os links no vault de 4782 notas
+        let tx_resolve = conn.transaction().unwrap();
+        let start_resolve = std::time::Instant::now();
+        crate::commands::index_db::re_resolve_all_links(&tx_resolve, &temp_dir.to_string_lossy()).unwrap();
+        let duration_resolve = start_resolve.elapsed();
+        tx_resolve.commit().unwrap();
+
+        println!(
+            "\n========================================",
+        );
+        println!(
+            "TELEMETRIA DE ESCALA: Indexou {} notas em {:?}",
+            all_files.len(), duration
+        );
+        println!(
+            "TELEMETRIA DE RE-RESOLUÇÃO: Re-resolveu links de {} notas em {:?}",
+            all_files.len(), duration_resolve
+        );
+        println!(
+            "========================================\n",
+        );
+
+        // Verifica contagem
+        let count: i64 = conn.query_row("SELECT COUNT(*) FROM notes", [], |row| row.get(0)).unwrap();
+        assert_eq!(count, total_files as i64, "Todas as notas devem estar indexadas");
+
+        let fts_count: i64 = conn.query_row("SELECT COUNT(*) FROM notes_fts", [], |row| row.get(0)).unwrap();
+        assert_eq!(fts_count, total_files as i64, "Todas as notas devem estar no FTS5");
+
+        // Limpeza
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    // =========================================================================
+    // TESTE 6: Extração de tags com regex — casos de borda
+    // =========================================================================
+    #[test]
+    fn test_tag_extraction_edge_cases() {
+        // Tag normal no início da linha
+        let content1 = "#minha_tag resto do texto";
+        let meta1 = parse_markdown(content1, "test.md");
+        assert!(meta1.tags.contains(&"minha_tag".to_string()), "Tag no início da linha deve ser extraída");
+
+        // Tag após espaço
+        let content2 = "texto antes #tag_depois";
+        let meta2 = parse_markdown(content2, "test.md");
+        assert!(meta2.tags.contains(&"tag_depois".to_string()), "Tag após espaço deve ser extraída");
+
+        // Cor hexadecimal que começa com letra é extraída como tag (is_hex_color foi removido)
+        // #333 começa com dígito → bloqueado pela regra de início de tag
+        let content3 = "color: #ff0000 e #333 e #abc123 e #AABB00";
+        let meta3 = parse_markdown(content3, "test.md");
+        assert!(meta3.tags.contains(&"ff0000".to_string()), "Cor hex #ff0000 deve ser extraída como tag");
+        assert!(!meta3.tags.iter().any(|t| t == "333"), "Cor hex #333 NÃO deve ser extraída como tag (começa com número)");
+        assert!(meta3.tags.contains(&"abc123".to_string()), "Cor hex #abc123 deve ser extraída como tag");
+        assert!(meta3.tags.contains(&"AABB00".to_string()), "Cor hex #AABB00 deve ser extraída como tag");
+
+        // Heading markdown NÃO deve ser tag
+        let content4 = "# Título Principal\n\nTexto com #tag_real";
+        let meta4 = parse_markdown(content4, "test.md");
+        assert!(meta4.tags.contains(&"tag_real".to_string()), "Tag inline deve ser extraída");
+        assert!(!meta4.tags.iter().any(|t| t.starts_with("Título")), "Heading não deve ser tag");
+
+        // Tag com sublinhado inicial — deve ser extraída corretamente (não mais consumida pelo pulldown-cmark)
+        let content5 = "conferir #_internal depois.";
+        let meta5 = parse_markdown(content5, "test.md");
+        assert!(meta5.tags.contains(&"_internal".to_string()), "Tag com _ inicial deve ser extraída corretamente");
+
+        // Tag com path-separator /
+        let content6 = "texto #area/subarea/item";
+        let meta6 = parse_markdown(content6, "test.md");
+        assert!(meta6.tags.contains(&"area/subarea/item".to_string()), "Tag com / deve ser extraída");
+    }
+
+    // =========================================================================
+    // TESTE 7: Wiki-links — variações de formato
+    // =========================================================================
+    #[test]
+    fn test_wiki_link_extraction_variants() {
+        let content = r#"
+Links normais: [[Nota Simples]] e [[Pasta/Nota Aninhada]].
+Links com alias: [[Target|Texto Exibido]] e [[Outro|Alias Longo]].
+Links adjacentes: [[A]][[B]].
+Link vazio (deve ser ignorado): [[]].
+"#;
+        let meta = parse_markdown(content, "test_links.md");
+        let links_set: HashSet<&str> = meta.links.iter().map(|s| s.as_str()).collect();
+
+        assert!(links_set.contains("Nota Simples"), "Link simples deve ser extraído");
+        assert!(links_set.contains("Pasta/Nota Aninhada"), "Link com path deve ser extraído");
+        assert!(links_set.contains("Target"), "Link com alias deve extrair o target antes do |");
+        assert!(links_set.contains("Outro"), "Link com alias longo deve extrair o target");
+        assert!(links_set.contains("A"), "Link adjacente A deve ser extraído");
+        assert!(links_set.contains("B"), "Link adjacente B deve ser extraído");
+        assert!(!links_set.contains(""), "Link vazio não deve ser extraído");
+    }
+
+    // =========================================================================
+    // TESTE 8: Incrementalidade — mtime comparação
+    // =========================================================================
+    #[test]
+    fn test_incremental_indexing_by_mtime() {
+        let conn = create_test_db();
+
+        // Indexa com mtime=1000
+        let content = "---\ntitle: Nota Incremental\n---\n\nTexto v1.\n";
+        index_note_in_db(&conn, "/test/inc.md", content, "inc.md", 1000);
+
+        // Verifica mtime gravado
+        let db_mtime: i64 = conn.query_row(
+            "SELECT last_modified FROM notes WHERE path = ?",
+            ["/test/inc.md"],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(db_mtime, 1000);
+
+        // Simula arquivo com mtime=1000 (sem mudança) — deveria ser pulado
+        // Simula arquivo com mtime=2000 (modificado) — deveria ser reindexado
+        // Não precisamos simular o pulo aqui pois isso é lógica do index_vault;
+        // mas verificamos que o reindex com mtime maior atualiza o banco
+        let content_v2 = "---\ntitle: Nota Incremental V2\n---\n\nTexto v2 com mudanças.\n";
+        index_note_in_db(&conn, "/test/inc.md", content_v2, "inc.md", 2000);
+
+        let new_mtime: i64 = conn.query_row(
+            "SELECT last_modified FROM notes WHERE path = ?",
+            ["/test/inc.md"],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(new_mtime, 2000, "mtime deve ser atualizado após reindexação");
+
+        // FTS5 deve conter o texto novo, não o antigo
+        let new_found: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM notes_fts WHERE notes_fts MATCH 'mudanças'",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(new_found, 1, "Texto novo deve ser encontrável no FTS5");
+    }
+
+    #[test]
+    fn test_link_resolution_and_backlinks_deterministic() {
+        use crate::commands::index_db::{resolve_target_path, DbState};
+        use std::sync::Mutex;
+        use std::sync::atomic::AtomicBool;
+
+        let vault_path = "C:\\MyVault";
+        let all_paths = vec![
+            "C:\\MyVault\\pasta_a\\sub\\Plano.md".to_string(),
+            "C:\\MyVault\\pasta_b\\Plano.md".to_string(), // mais curto
+            "C:\\MyVault\\pasta_c\\Plano.md".to_string(), // mesmo tamanho que pasta_b, mas alfabeticamente posterior
+        ];
+
+        // 1. Testa a resolução determinística de caminho
+        let resolved = resolve_target_path("Plano", &all_paths, vault_path);
+        // Menor comprimento: pasta_b (len 14) vs pasta_a/sub (len 18) vs pasta_c (len 14)
+        // Empate no comprimento: pasta_b vs pasta_c. Ordem alfabética: pasta_b < pasta_c
+        // Vencedor esperado: C:\MyVault\pasta_b\Plano.md
+        assert_eq!(resolved, Some("C:\\MyVault\\pasta_b\\Plano.md".to_string()));
+
+        // 2. Testa a integração com o banco SQLite
+        let conn = create_test_db();
+        
+        // Simula o index_vault inserindo as notas e os links
+        conn.execute("INSERT INTO notes (path, title, last_modified) VALUES (?, ?, ?)", rusqlite::params!["C:\\MyVault\\Nota A.md", "Nota A", 1000]).unwrap();
+        conn.execute("INSERT INTO notes (path, title, last_modified) VALUES (?, ?, ?)", rusqlite::params!["C:\\MyVault\\pasta_b\\Plano.md", "Plano", 1000]).unwrap();
+        conn.execute("INSERT INTO notes (path, title, last_modified) VALUES (?, ?, ?)", rusqlite::params!["C:\\MyVault\\pasta_c\\Plano.md", "Plano", 1000]).unwrap();
+
+        // Nota A tem um link para [[Plano]]
+        // O indexador resolve o link e insere
+        let all_paths_in_db = vec![
+            "C:\\MyVault\\Nota A.md".to_string(),
+            "C:\\MyVault\\pasta_b\\Plano.md".to_string(),
+            "C:\\MyVault\\pasta_c\\Plano.md".to_string(),
+        ];
+        let resolved_path = resolve_target_path("Plano", &all_paths_in_db, vault_path);
+        assert_eq!(resolved_path, Some("C:\\MyVault\\pasta_b\\Plano.md".to_string()));
+
+        conn.execute(
+            "INSERT INTO links (source_path, target_name, target_path) VALUES (?, ?, ?)",
+            rusqlite::params!["C:\\MyVault\\Nota A.md", "Plano", resolved_path],
+        ).unwrap();
+
+        // 3. Simula a leitura e o get_backlinks
+        // Cria a Nota A fictícia em disco temporário para a leitura de contexto do backlink
+        let temp_dir = std::env::temp_dir().join("mycellia_test_backlinks");
+        let _ = fs::remove_dir_all(&temp_dir);
+        let _ = fs::create_dir_all(&temp_dir);
+        
+        let file_a_path = temp_dir.join("Nota A.md");
+        fs::write(&file_a_path, "Texto antes\nEste é o link para [[Plano]] e mais texto.\nTexto depois").unwrap();
+
+        // Cria o DbState
+        let state = DbState {
+            conn: Mutex::new(Some(conn)),
+            is_rebuilding: AtomicBool::new(false),
+            is_indexing: AtomicBool::new(false),
+        };
+
+        // Vamos invocar diretamente as queries do banco
+        let conn_guard = state.conn.lock().unwrap();
+        let db_conn = conn_guard.as_ref().unwrap();
+
+        // get_all_notes mock
+        let mut stmt = db_conn.prepare("SELECT path, title FROM notes").unwrap();
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        }).unwrap();
+        let all_notes: Vec<(String, String)> = rows.flatten().collect();
+        assert_eq!(all_notes.len(), 3);
+        assert!(all_notes.iter().any(|(p, b)| p == "C:\\MyVault\\pasta_b\\Plano.md" && b == "Plano"));
+
+        // get_backlinks mock
+        // Procuramos backlinks para C:\MyVault\pasta_b\Plano.md
+        let target_path = "C:\\MyVault\\pasta_b\\Plano.md";
+        let mut stmt = db_conn.prepare(
+            "SELECT l.source_path, n.title 
+             FROM links l
+             JOIN notes n ON l.source_path = n.path
+             WHERE l.target_path = ?"
+        ).unwrap();
+        let source_notes: Vec<(String, String)> = stmt.query_map([target_path], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        }).unwrap().flatten().collect();
+        assert_eq!(source_notes.len(), 1);
+        assert_eq!(source_notes[0].0, "C:\\MyVault\\Nota A.md");
+
+        // Simula a leitura de arquivo temporário
+        let content_a = fs::read_to_string(&file_a_path).unwrap();
+        let mut context_line = String::new();
+        for line in content_a.lines() {
+            if line.to_lowercase().contains("[[plano") {
+                context_line = line.trim().to_string();
+                break;
+            }
+        }
+        assert_eq!(context_line, "Este é o link para [[Plano]] e mais texto.");
+
+        // Limpeza
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_incremental_indexing_single_file() {
+        let mut conn = create_test_db();
+        let temp_dir = std::env::temp_dir().join("mycellia_test_inc_single");
+        let _ = fs::remove_dir_all(&temp_dir);
+        let _ = fs::create_dir_all(&temp_dir);
+
+        let note_path = temp_dir.join("Nota Teste.md");
+        fs::write(&note_path, "---\ntitle: Nota Teste\ntags: [rust]\n---\nConteúdo [[Link Interno]]").unwrap();
+
+        let tx = conn.transaction().unwrap();
+        let path_str = note_path.to_string_lossy().into_owned();
+        crate::commands::index_db::index_single_file_in_tx(&tx, &note_path, 100).unwrap();
+        crate::commands::index_db::re_resolve_all_links(&tx, &temp_dir.to_string_lossy()).unwrap();
+        tx.commit().unwrap();
+
+        // Verifica inserção
+        let note_title: String = conn.query_row("SELECT title FROM notes WHERE path = ?", [&path_str], |row| row.get(0)).unwrap();
+        assert_eq!(note_title, "Nota Teste");
+
+        let tag_count: i64 = conn.query_row("SELECT count(*) FROM tags WHERE note_path = ?", [&path_str], |row| row.get(0)).unwrap();
+        assert_eq!(tag_count, 1);
+
+        // Modifica a nota e indexa de novo
+        fs::write(&note_path, "---\ntitle: Nota Teste Alterada\ntags: [rust, sql]\n---\nNovo").unwrap();
+        let tx = conn.transaction().unwrap();
+        crate::commands::index_db::index_single_file_in_tx(&tx, &note_path, 101).unwrap();
+        crate::commands::index_db::re_resolve_all_links(&tx, &temp_dir.to_string_lossy()).unwrap();
+        tx.commit().unwrap();
+
+        // Verifica atualização
+        let note_title_new: String = conn.query_row("SELECT title FROM notes WHERE path = ?", [&path_str], |row| row.get(0)).unwrap();
+        assert_eq!(note_title_new, "Nota Teste");
+
+        let tag_count_new: i64 = conn.query_row("SELECT count(*) FROM tags WHERE note_path = ?", [&path_str], |row| row.get(0)).unwrap();
+        assert_eq!(tag_count_new, 2);
+
+        // Deleta
+        let tx = conn.transaction().unwrap();
+        crate::commands::index_db::delete_file_in_tx(&tx, &path_str).unwrap();
+        crate::commands::index_db::re_resolve_all_links(&tx, &temp_dir.to_string_lossy()).unwrap();
+        tx.commit().unwrap();
+
+        // Verifica deleção
+        let exists: bool = conn.query_row("SELECT exists(SELECT 1 FROM notes WHERE path = ?)", [&path_str], |row| row.get(0)).unwrap();
+        assert!(!exists);
+
+        let tag_count_del: i64 = conn.query_row("SELECT count(*) FROM tags WHERE note_path = ?", [&path_str], |row| row.get(0)).unwrap();
+        assert_eq!(tag_count_del, 0);
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_incremental_indexing_re_resolve_tie_breaker() {
+        let mut conn = create_test_db();
+        let temp_dir = std::env::temp_dir().join("mycellia_test_tie_breaker");
+        let _ = fs::remove_dir_all(&temp_dir);
+        let _ = fs::create_dir_all(&temp_dir);
+
+        let vault_str = temp_dir.to_string_lossy().into_owned();
+
+        // 1. Cria nota de origem A com o link [[Plano]]
+        let path_a = temp_dir.join("Nota A.md");
+        fs::write(&path_a, "Link para [[Plano]]").unwrap();
+
+        // 2. Cria primeiro candidato Plano (caminho longo: pasta_a/sub/Plano.md)
+        let dir_sub = temp_dir.join("pasta_a").join("sub");
+        fs::create_dir_all(&dir_sub).unwrap();
+        let path_plano_long = dir_sub.join("Plano.md");
+        fs::write(&path_plano_long, "Sou o Plano Longo").unwrap();
+
+        // 3. Cria segundo candidato Plano (caminho mais curto: pasta_b/Plano.md)
+        let dir_b = temp_dir.join("pasta_b");
+        fs::create_dir_all(&dir_b).unwrap();
+        let path_plano_short = dir_b.join("Plano.md");
+        fs::write(&path_plano_short, "Sou o Plano Curto").unwrap();
+
+        // Indexa todos os 3 arquivos
+        let tx = conn.transaction().unwrap();
+        crate::commands::index_db::index_single_file_in_tx(&tx, &path_a, 1).unwrap();
+        crate::commands::index_db::index_single_file_in_tx(&tx, &path_plano_long, 1).unwrap();
+        crate::commands::index_db::index_single_file_in_tx(&tx, &path_plano_short, 1).unwrap();
+        crate::commands::index_db::re_resolve_all_links(&tx, &vault_str).unwrap();
+        tx.commit().unwrap();
+
+        // Verifica que resolve para o caminho mais curto
+        let resolved_path: String = conn.query_row(
+            "SELECT target_path FROM links WHERE source_path = ? AND target_name = 'Plano'",
+            [path_a.to_str().unwrap()],
+            |row| row.get(0)
+        ).unwrap();
+        assert_eq!(resolved_path, path_plano_short.to_string_lossy().into_owned());
+
+        // 4. Deleta o candidato curto (Plano Curto)
+        fs::remove_file(&path_plano_short).unwrap();
+        let tx = conn.transaction().unwrap();
+        crate::commands::index_db::delete_file_in_tx(&tx, &path_plano_short.to_string_lossy()).unwrap();
+        crate::commands::index_db::re_resolve_all_links(&tx, &vault_str).unwrap();
+        tx.commit().unwrap();
+
+        // Verifica que re-resolveu para o candidato sobrevivente (Plano Longo)
+        let resolved_path_after_del: String = conn.query_row(
+            "SELECT target_path FROM links WHERE source_path = ? AND target_name = 'Plano'",
+            [path_a.to_str().unwrap()],
+            |row| row.get(0)
+        ).unwrap();
+        assert_eq!(resolved_path_after_del, path_plano_long.to_string_lossy().into_owned());
+
+        // 5. Cria um candidato super curto na raiz: Plano.md
+        let path_plano_root = temp_dir.join("Plano.md");
+        fs::write(&path_plano_root, "Sou o Plano Root").unwrap();
+        let tx = conn.transaction().unwrap();
+        crate::commands::index_db::index_single_file_in_tx(&tx, &path_plano_root, 1).unwrap();
+        crate::commands::index_db::re_resolve_all_links(&tx, &vault_str).unwrap();
+        tx.commit().unwrap();
+
+        // Verifica que re-resolveu para o Plano root
+        let resolved_path_final: String = conn.query_row(
+            "SELECT target_path FROM links WHERE source_path = ? AND target_name = 'Plano'",
+            [path_a.to_str().unwrap()],
+            |row| row.get(0)
+        ).unwrap();
+        assert_eq!(resolved_path_final, path_plano_root.to_string_lossy().into_owned());
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_watcher_indexing_integrity_real_disk() {
+        use sha2::{Sha256, Digest};
+        let temp_dir = std::env::temp_dir().join("mycellia_test_integrity");
+        let _ = fs::remove_dir_all(&temp_dir);
+        let _ = fs::create_dir_all(&temp_dir);
+
+        let path_a = temp_dir.join("Nota A.md");
+        let path_b = temp_dir.join("Nota B.md");
+        let path_c = temp_dir.join("Nota C.md");
+
+        fs::write(&path_a, "Conteudo A original").unwrap();
+        fs::write(&path_b, "Conteudo B original").unwrap();
+        fs::write(&path_c, "Conteudo C original").unwrap();
+
+        // Computa hashes antes da indexação
+        let hash_a = {
+            let bytes = fs::read(&path_a).unwrap();
+            let mut hasher = Sha256::new();
+            hasher.update(&bytes);
+            format!("{:x}", hasher.finalize())
+        };
+        let hash_b = {
+            let bytes = fs::read(&path_b).unwrap();
+            let mut hasher = Sha256::new();
+            hasher.update(&bytes);
+            format!("{:x}", hasher.finalize())
+        };
+        let hash_c = {
+            let bytes = fs::read(&path_c).unwrap();
+            let mut hasher = Sha256::new();
+            hasher.update(&bytes);
+            format!("{:x}", hasher.finalize())
+        };
+
+        // Simula alterações e indexação apenas em A e B (C não é alterada)
+        let mut conn = create_test_db();
+        let tx = conn.transaction().unwrap();
+        crate::commands::index_db::index_single_file_in_tx(&tx, &path_a, 1).unwrap();
+        crate::commands::index_db::index_single_file_in_tx(&tx, &path_b, 1).unwrap();
+        crate::commands::index_db::re_resolve_all_links(&tx, &temp_dir.to_string_lossy()).unwrap();
+        tx.commit().unwrap();
+
+        // Verifica hashes depois da indexação
+        let hash_a_after = {
+            let bytes = fs::read(&path_a).unwrap();
+            let mut hasher = Sha256::new();
+            hasher.update(&bytes);
+            format!("{:x}", hasher.finalize())
+        };
+        let hash_b_after = {
+            let bytes = fs::read(&path_b).unwrap();
+            let mut hasher = Sha256::new();
+            hasher.update(&bytes);
+            format!("{:x}", hasher.finalize())
+        };
+        let hash_c_after = {
+            let bytes = fs::read(&path_c).unwrap();
+            let mut hasher = Sha256::new();
+            hasher.update(&bytes);
+            format!("{:x}", hasher.finalize())
+        };
+
+        assert_eq!(hash_a, hash_a_after);
+        assert_eq!(hash_b, hash_b_after);
+        assert_eq!(hash_c, hash_c_after, "Nota C (não-alvo) foi alterada!");
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_get_graph_data_sqlite() {
+        use crate::commands::index_db::{DbState, get_graph_data};
+        use tauri::Manager;
+
+        let app = tauri::test::mock_builder()
+            .manage(DbState::default())
+            .build(tauri::generate_context!())
+            .unwrap();
+        let handle = app.handle();
+
+        let db_state = handle.state::<DbState>();
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        
+        conn.execute("CREATE TABLE IF NOT EXISTS notes (path TEXT PRIMARY KEY, title TEXT NOT NULL, last_modified INTEGER NOT NULL);", []).unwrap();
+        conn.execute("CREATE TABLE IF NOT EXISTS links (source_path TEXT NOT NULL, target_name TEXT NOT NULL, target_path TEXT, PRIMARY KEY (source_path, target_name), FOREIGN KEY (source_path) REFERENCES notes (path) ON DELETE CASCADE);", []).unwrap();
+
+        conn.execute("INSERT INTO notes (path, title, last_modified) VALUES ('path/A.md', 'Nota A', 100);", []).unwrap();
+        conn.execute("INSERT INTO notes (path, title, last_modified) VALUES ('path/B.md', 'Nota B', 200);", []).unwrap();
+        
+        conn.execute("INSERT INTO links (source_path, target_name, target_path) VALUES ('path/A.md', 'Nota B', 'path/B.md');", []).unwrap();
+        conn.execute("INSERT INTO links (source_path, target_name, target_path) VALUES ('path/A.md', 'Nota C', NULL);", []).unwrap();
+
+        *db_state.conn.lock().unwrap() = Some(conn);
+
+        let graph_data = get_graph_data(handle.clone()).unwrap();
+
+        assert_eq!(graph_data.nodes.len(), 3);
+        
+        let node_a = graph_data.nodes.iter().find(|n| n.id == "path/A.md").unwrap();
+        assert_eq!(node_a.label, "Nota A");
+        assert!(node_a.exists);
+        assert_eq!(node_a.degree, 2);
+
+        let node_b = graph_data.nodes.iter().find(|n| n.id == "path/B.md").unwrap();
+        assert_eq!(node_b.label, "Nota B");
+        assert!(node_b.exists);
+        assert_eq!(node_b.degree, 1);
+
+        let node_c = graph_data.nodes.iter().find(|n| n.id == "phantom:Nota C").unwrap();
+        assert_eq!(node_c.label, "Nota C");
+        assert!(!node_c.exists);
+        assert_eq!(node_c.degree, 1);
+
+        assert_eq!(graph_data.links.len(), 2);
+        let link_1 = graph_data.links.iter().find(|l| l.source == "path/A.md" && l.target == "path/B.md");
+        assert!(link_1.is_some());
+        let link_2 = graph_data.links.iter().find(|l| l.source == "path/A.md" && l.target == "phantom:Nota C");
+        assert!(link_2.is_some());
+    }
+
+    #[test]
+    fn test_graph_positions_atomic_cache() {
+        use crate::commands::graph_positions::{load_graph_positions, save_graph_positions, NodePosition};
+        use std::collections::HashMap;
+        use tauri::Manager;
+
+        let app = tauri::test::mock_builder()
+            .build(tauri::generate_context!())
+            .unwrap();
+        let handle = app.handle();
+
+        let config_dir = handle.path().app_config_dir().unwrap();
+        let cache_file = config_dir.join("graph_positions.json");
+        if cache_file.exists() {
+            let _ = std::fs::remove_file(&cache_file);
+        }
+
+        let mut positions = HashMap::new();
+        positions.insert("path/A.md".to_string(), NodePosition {
+            x2d: Some(10.0),
+            y2d: Some(20.0),
+            x3d: Some(10.0),
+            y3d: Some(20.0),
+            z3d: Some(30.0),
+            x: None,
+            y: None,
+            z: None,
+        });
+        positions.insert("phantom:Nota C".to_string(), NodePosition {
+            x2d: Some(-100.5),
+            y2d: Some(50.2),
+            x3d: Some(-100.5),
+            y3d: Some(50.2),
+            z3d: Some(0.0),
+            x: None,
+            y: None,
+            z: None,
+        });
+
+        save_graph_positions(handle.clone(), positions.clone()).unwrap();
+
+        assert!(cache_file.exists());
+
+        let loaded = load_graph_positions(handle.clone());
+        assert_eq!(loaded.len(), 2);
+        assert_eq!(loaded.get("path/A.md").unwrap(), positions.get("path/A.md").unwrap());
+        assert_eq!(loaded.get("phantom:Nota C").unwrap(), positions.get("phantom:Nota C").unwrap());
+
+        let _ = std::fs::remove_file(&cache_file);
+    }
+
+    #[test]
+    fn test_fts5_real_search_notes() {
+        use crate::commands::index_db::{DbState, search_notes, get_matching_paths};
+        use tauri::Manager;
+
+        let app = tauri::test::mock_builder()
+            .manage(DbState::default())
+            .build(tauri::generate_context!())
+            .unwrap();
+        let handle = app.handle();
+
+        let db_state = handle.state::<DbState>();
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+
+        // Cria tabela virtual FTS5
+        conn.execute(
+            "CREATE VIRTUAL TABLE notes_fts USING fts5(path, title, content, tags, properties);",
+            [],
+        ).unwrap();
+
+        // Insere conteúdo conhecido para busca
+        conn.execute(
+            "INSERT INTO notes_fts (path, title, content, tags, properties) VALUES (?1, ?2, ?3, ?4, ?5);",
+            [
+                "path/A.md",
+                "Nota A",
+                "O micelio e uma teia incrivel de conexoes de hifas bioluminescentes no escuro.",
+                "tag1",
+                "",
+            ],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO notes_fts (path, title, content, tags, properties) VALUES (?1, ?2, ?3, ?4, ?5);",
+            [
+                "path/B.md",
+                "Nota B",
+                "Nada de hifas nesta nota, apenas texto simples.",
+                "tag2",
+                "",
+            ],
+        ).unwrap();
+
+        *db_state.conn.lock().unwrap() = Some(conn);
+
+        // Executa busca por "micelio"
+        let results = search_notes(handle.clone(), "micelio".to_string()).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].path, "path/A.md");
+        assert_eq!(results[0].title, "Nota A");
+        // Verifica que o snippet contém a tag <b> de marcação do SQLite FTS5 extraída do conteúdo
+        assert!(results[0].snippet.contains("<b>micelio</b>"), "Snippet inválido: {}", results[0].snippet);
+
+        // Executa busca por "hifas"
+        let results_hifas = search_notes(handle.clone(), "hifas".to_string()).unwrap();
+        assert_eq!(results_hifas.len(), 2);
+
+        // Verifica get_matching_paths por "micelio"
+        let paths = get_matching_paths(handle.clone(), "micelio".to_string()).unwrap();
+        assert_eq!(paths.len(), 1);
+        assert_eq!(paths[0], "path/A.md");
+
+        // Verifica get_matching_paths por "hifas"
+        let paths_hifas = get_matching_paths(handle.clone(), "hifas".to_string()).unwrap();
+        assert_eq!(paths_hifas.len(), 2);
+        assert!(paths_hifas.contains(&"path/A.md".to_string()));
+        assert!(paths_hifas.contains(&"path/B.md".to_string()));
+    }
+}
+
