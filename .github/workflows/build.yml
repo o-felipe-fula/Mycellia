@@ -41,4 +41,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: mycellia-${{ matrix.platform }}-bundle
-          path: ${{ join(fromJSON(steps.tauri-build.outputs.artifactPaths), '\n') }}
+          path: |
+            src-tauri/target/release/bundle/dmg/*.dmg
+            src-tauri/target/release/bundle/macos/*.app
+            src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: warn
