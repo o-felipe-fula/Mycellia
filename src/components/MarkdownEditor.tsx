@@ -379,9 +379,17 @@ const livePreviewExtension = () => {
               return true;
             }
 
+            let toPos = node.to;
+            if (nodeName === 'HeaderMark' || nodeName === 'QuoteMark' || nodeName === 'ListMark') {
+              const nextChar = tr.state.doc.sliceString(node.to, node.to + 1);
+              if (nextChar === ' ') {
+                toPos = node.to + 1;
+              }
+            }
+
             specs.push({
               from: node.from,
-              to: node.to,
+              to: toPos,
               dec: Decoration.replace({
                 widget: new EmptyWidget(),
               }),
