@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { EditorState, RangeSetBuilder, StateField } from '@codemirror/state';
 import { EditorView, Decoration, DecorationSet, ViewUpdate, WidgetType, keymap } from '@codemirror/view';
 import { markdown } from '@codemirror/lang-markdown';
-import { syntaxTree } from '@codemirror/language';
+import { syntaxTree, HighlightStyle, syntaxHighlighting } from '@codemirror/language';
+import { tags } from '@lezer/highlight';
 import { history, historyKeymap, standardKeymap } from '@codemirror/commands';
 import { autocompletion, type CompletionContext, type CompletionResult } from '@codemirror/autocomplete';
 import { useAppStore, FileNode } from '../store/appStore';
@@ -499,6 +500,19 @@ const imagePreviewExtension = (
   });
 };
 
+const mycelliaHighlightStyle = HighlightStyle.define([
+  { tag: tags.heading1, class: 'cm-heading-1' },
+  { tag: tags.heading2, class: 'cm-heading-2' },
+  { tag: tags.heading3, class: 'cm-heading-3' },
+  { tag: tags.heading4, class: 'cm-heading-4' },
+  { tag: tags.heading5, class: 'cm-heading-5' },
+  { tag: tags.heading6, class: 'cm-heading-6' },
+  { tag: tags.strong, class: 'cm-strong' },
+  { tag: tags.emphasis, class: 'cm-em' },
+  { tag: tags.strikethrough, class: 'cm-strikethrough' },
+  { tag: tags.monospace, class: 'cm-inline-code' },
+]);
+
 const mycelliaTheme = EditorView.theme(
   {
     '&': {
@@ -537,6 +551,12 @@ const mycelliaTheme = EditorView.theme(
     '.cm-heading-1': { fontSize: '1.8em', fontWeight: 'bold' },
     '.cm-heading-2': { fontSize: '1.5em', fontWeight: 'bold' },
     '.cm-heading-3': { fontSize: '1.25em', fontWeight: 'bold' },
+    '.cm-heading-4': { fontSize: '1.15em', fontWeight: 'bold' },
+    '.cm-heading-5': { fontSize: '1.05em', fontWeight: 'bold' },
+    '.cm-heading-6': { fontSize: '1em', fontWeight: 'bold' },
+    '.cm-strong': { fontWeight: 'bold' },
+    '.cm-em': { fontStyle: 'italic' },
+    '.cm-strikethrough': { textDecoration: 'line-through' },
   },
   { dark: true },
 );
@@ -636,6 +656,7 @@ export default function MarkdownEditor({ content, onChange }: MarkdownEditorProp
         history(),
         keymap.of([...standardKeymap, ...historyKeymap]),
         mycelliaTheme,
+        syntaxHighlighting(mycelliaHighlightStyle),
         livePreviewExtension(),
         imagePreviewExtension(activeTab, currentVault, fileTree),
         wikiLinkExtension(),
