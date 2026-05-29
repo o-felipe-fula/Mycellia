@@ -3,16 +3,56 @@ import { useAppStore, FileNode } from '../store/appStore';
 import { Folder, FolderOpen, FileText, Image, File, ChevronDown, ChevronRight } from 'lucide-react';
 import ContextMenu from './ContextMenu';
 
+const getParentPath = (p: string): string => {
+  const lastBackslash = p.lastIndexOf('\\');
+  const lastSlash = p.lastIndexOf('/');
+  const lastIndex = Math.max(lastBackslash, lastSlash);
+  if (lastIndex !== -1) {
+    return p.substring(0, lastIndex);
+  }
+  return '';
+};
+
+const getTargetParent = (targetNode: FileNode, rootPath: string): string => {
+  if (targetNode.is_dir) {
+    return targetNode.path;
+  }
+  const parent = getParentPath(targetNode.path);
+  return parent || rootPath;
+};
+
 interface FileTreeProps {
   node: FileNode;
 }
 
+let activeDragPath: string | null = null;
+
 export default function FileTree({ node }: FileTreeProps) {
-  const { createItem, renameItem, deleteItem, openTab, activeTab, openInDefaultApp } = useAppStore();
+  const { createItem, renameItem, deleteItem, openTab, activeTab, openInDefaultApp, moveItem } = useAppStore();
   const [expanded, setExpanded] = useState<Record<string, boolean>>({ [node.path]: true });
+  const [draggedOverPath, setDraggedOverPath] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; target: FileNode } | null>(
     null,
   );
+
+  const isValidDropTarget = (dragged: string | null, targetItem: FileNode): boolean => {
+    if (!dragged) return false;
+    const targetParent = getTargetParent(targetItem, node.path);
+    const sourceParent = getParentPath(dragged);
+
+    const normalize = (p: string) => p.replace(/\\/g, '/').toLowerCase();
+    const normDragged = normalize(dragged);
+    const normTarget = normalize(targetItem.path);
+    const normTargetParent = normalize(targetParent);
+    const normSourceParent = normalize(sourceParent);
+
+    if (normDragged === normTarget) return false;
+    if (normSourceParent === normTargetParent) return false;
+    if (targetItem.is_dir && (normTarget === normDragged || normTarget.startsWith(normDragged + '/'))) {
+      return false;
+    }
+    return true;
+  };
 
   const toggleExpand = (path: string) => {
     setExpanded((prev) => ({ ...prev, [path]: !prev[path] }));
@@ -128,10 +168,100 @@ export default function FileTree({ node }: FileTreeProps) {
           onClick={(e) => handleNodeClick(e, item)}
           onContextMenu={(e) => handleNodeContextMenu(e, item)}
           style={{ paddingLeft: `${depth * 12 + 6}px` }}
+          draggable={item.path !== node.path}
+          onDragStart={(e) => {
+            e.stopPropagation();
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', item.path);
+            activeDragPath = item.path;
+          }}
+          onDragEnd={(e) => {
+            e.stopPropagation();
+            activeDragPath = null;
+            setDraggedOverPath(null);
+          }}
+          onDragOver={(e) => {
+            e.stopPropagation();
+            if (isValidDropTarget(activeDragPath, item)) {
+              e.preventDefault();
+              if (e.dataTransfer) {
+                e.dataTransfer.dropEffect = 'move';
+              }
+              if (draggedOverPath !== item.path) {
+                setDraggedOverPath(item.path);
+              }
+            } else {
+              if (e.dataTransfer) {
+                e.dataTransfer.dropEffect = 'none';
+              }
+              if (draggedOverPath !== null) {
+                setDraggedOverPath(null);
+              }
+            }
+          }}
+          onDragEnter={(e) => {
+            e.stopPropagation();
+            if (isValidDropTarget(activeDragPath, item)) {
+              e.preventDefault();
+              if (e.dataTransfer) {
+                e.dataTransfer.dropEffect = 'move';
+              }
+              if (draggedOverPath !== item.path) {
+                setDraggedOverPath(item.path);
+              }
+            }
+          }}
+          onDragLeave={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (draggedOverPath === item.path) {
+              setDraggedOverPath(null);
+            }
+          }}
+          onDrop={async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setDraggedOverPath(null);
+            activeDragPath = null;
+            const sourcePath = e.dataTransfer.getData('text/plain');
+            if (!sourcePath) return;
+
+            const targetParent = getTargetParent(item, node.path);
+            const sourceParent = getParentPath(sourcePath);
+
+            // Block moving onto itself or its current parent or folder loop
+            const normalize = (p: string) => p.replace(/\\/g, '/').toLowerCase();
+            const normSource = normalize(sourcePath);
+            const normTargetParent = normalize(targetParent);
+            const normSourceParent = normalize(sourceParent);
+
+            if (
+              normSource === normalize(item.path) ||
+              normSourceParent === normTargetParent ||
+              (item.is_dir && (normalize(item.path) === normSource || normalize(item.path).startsWith(normSource + '/')))
+            ) {
+              return;
+            }
+
+            try {
+              await moveItem(sourcePath, targetParent);
+              if (item.is_dir) {
+                setExpanded((prev) => ({ ...prev, [item.path]: true }));
+              } else {
+                setExpanded((prev) => ({ ...prev, [targetParent]: true }));
+              }
+            } catch (err) {
+              // Erro tratado pela store exibindo no banner
+            }
+          }}
           className={`flex items-center gap-1.5 py-1.5 pr-2 text-xs rounded-md cursor-pointer transition-colors group ${
             isSelected
               ? 'bg-[var(--accent-muted)] text-[var(--text-primary)] border-l-2 border-[var(--accent)]'
               : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--substrate-raised)]'
+          } ${
+            draggedOverPath === item.path
+              ? 'outline-2 outline-dashed outline-[var(--accent)] -outline-offset-2 bg-[var(--accent-muted)]'
+              : ''
           }`}
         >
           {/* Chevron indicador apenas para pastas */}
@@ -163,7 +293,48 @@ export default function FileTree({ node }: FileTreeProps) {
   };
 
   return (
-    <div className="w-full h-full overflow-y-auto pr-1">
+    <div
+      onDragOver={(e) => {
+        if (isValidDropTarget(activeDragPath, node)) {
+          e.preventDefault();
+          if (e.dataTransfer) {
+            e.dataTransfer.dropEffect = 'move';
+          }
+        } else {
+          if (e.dataTransfer) {
+            e.dataTransfer.dropEffect = 'none';
+          }
+        }
+      }}
+      onDragEnter={(e) => {
+        if (isValidDropTarget(activeDragPath, node)) {
+          e.preventDefault();
+          if (e.dataTransfer) {
+            e.dataTransfer.dropEffect = 'move';
+          }
+        }
+      }}
+      onDrop={async (e) => {
+        e.preventDefault();
+        activeDragPath = null;
+        const sourcePath = e.dataTransfer.getData('text/plain');
+        if (!sourcePath) return;
+        const targetParent = node.path;
+        const sourceParent = getParentPath(sourcePath);
+        if (
+          sourcePath === targetParent ||
+          sourceParent.replace(/\\/g, '/').toLowerCase() === targetParent.replace(/\\/g, '/').toLowerCase()
+        ) {
+          return;
+        }
+        try {
+          await moveItem(sourcePath, targetParent);
+        } catch (err) {
+          // Erro tratado pela store exibindo no banner
+        }
+      }}
+      className="w-full h-full overflow-y-auto pr-1"
+    >
       {renderNode(node)}
 
       {contextMenu && (

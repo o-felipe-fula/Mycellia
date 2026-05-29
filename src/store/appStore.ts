@@ -534,19 +534,54 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { currentVault, openTabs, activeTab } = get();
     if (!currentVault) return;
 
-    if (activeTab === path) {
+    const normalizePath = (p: string) => p.replace(/\\/g, '/').toLowerCase();
+    const isPathUnderOrEqual = (child: string, parent: string) => {
+      const normChild = normalizePath(child);
+      const normParent = normalizePath(parent);
+      if (normChild === normParent) return true;
+      return normChild.startsWith(normParent.endsWith('/') ? normParent : normParent + '/');
+    };
+    const mapPathPrefix = (p: string, oldPath: string, newPath: string) => {
+      const normP = normalizePath(p);
+      const normOld = normalizePath(oldPath);
+      if (normP === normOld) {
+        return newPath;
+      }
+      const prefix = normOld.endsWith('/') ? normOld : normOld + '/';
+      if (normP.startsWith(prefix)) {
+        let sliceIndex = oldPath.length;
+        if (!oldPath.endsWith('/') && !oldPath.endsWith('\\')) {
+          sliceIndex += 1;
+        }
+        const suffix = p.slice(sliceIndex);
+        const sep = newPath.includes('\\') ? '\\' : '/';
+        const cleanNewPath = (newPath.endsWith('/') || newPath.endsWith('\\'))
+          ? newPath.slice(0, -1)
+          : newPath;
+        const mappedSuffix = sep === '\\' ? suffix.replace(/\//g, '\\') : suffix.replace(/\\/g, '/');
+        return `${cleanNewPath}${sep}${mappedSuffix}`;
+      }
+      return p;
+    };
+
+    if (activeTab && isPathUnderOrEqual(activeTab, path)) {
       await get().flushPendingSave();
     }
 
     try {
       const newPath = await invoke<string>('move_item', { path, newParentPath });
 
-      const updatedTabs = openTabs.map((t) => (t === path ? newPath : t));
-      const updatedActiveTab = activeTab === path ? newPath : activeTab;
+      const updatedTabs = openTabs.map((t) => mapPathPrefix(t, path, newPath));
+      const updatedActiveTab = activeTab ? mapPathPrefix(activeTab, path, newPath) : activeTab;
 
       set({ openTabs: updatedTabs, activeTab: updatedActiveTab });
 
       await get().loadVault(currentVault);
+      
+      if (updatedActiveTab) {
+        await get().loadBacklinks(updatedActiveTab);
+      }
+      await get().loadGraphData();
     } catch (e) {
       const msg = `Falha ao mover item: ${e}`;
       console.error(msg, e);

@@ -18,6 +18,7 @@ pub struct WriteRecord {
 pub struct WatcherState {
     pub debouncer: Mutex<Option<Debouncer<RecommendedWatcher, FileIdMap>>>,
     pub last_written: Mutex<HashMap<String, WriteRecord>>, // path -> WriteRecord
+    pub last_moved: Mutex<HashMap<String, Instant>>, // path -> Instant
 }
 
 impl Default for WatcherState {
@@ -25,6 +26,7 @@ impl Default for WatcherState {
         Self {
             debouncer: Mutex::new(None),
             last_written: Mutex::new(HashMap::new()),
+            last_moved: Mutex::new(HashMap::new()),
         }
     }
 }
@@ -229,8 +231,39 @@ pub fn rename_item(path: String, new_name: String) -> Result<String, String> {
     Ok(target_path.to_string_lossy().into_owned())
 }
 
-#[tauri::command]
-pub fn move_item(path: String, new_parent_path: String) -> Result<String, String> {
+fn get_mtime(p: &Path) -> i64 {
+    if let Ok(metadata) = std::fs::metadata(p) {
+        if let Ok(modified) = metadata.modified() {
+            if let Ok(duration) = modified.duration_since(std::time::UNIX_EPOCH) {
+                return duration.as_secs() as i64;
+            }
+        }
+    }
+    0
+}
+
+fn get_all_md_files(dir: &Path, files: &mut Vec<PathBuf>) {
+    if dir.is_dir() {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries {
+                if let Ok(entry) = entry {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        get_all_md_files(&path, files);
+                    } else if path.is_file() {
+                        if let Some(ext) = path.extension() {
+                            if ext == "md" {
+                                files.push(path);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+pub fn move_item_internal(path: String, new_parent_path: String) -> Result<String, String> {
     let current_path = Path::new(&path);
     if !current_path.exists() {
         return Err("Arquivo ou pasta de origem não existe".to_string());
@@ -253,9 +286,78 @@ pub fn move_item(path: String, new_parent_path: String) -> Result<String, String
         );
     }
 
+    // Anti-loop safety check: prevent moving a directory into itself or its subdirectories
+    if current_path.is_dir() && dest_path.starts_with(current_path) {
+        return Err("Não é possível mover uma pasta para dentro de si mesma ou de seus subdiretórios".to_string());
+    }
+
     fs::rename(current_path, &dest_path).map_err(|e| format!("Falha ao mover item: {}", e))?;
 
     Ok(dest_path.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+pub fn move_item<R: tauri::Runtime>(app: tauri::AppHandle<R>, path: String, new_parent_path: String) -> Result<String, String> {
+    // 1. Chamar a interna pura para mover fisicamente no disco
+    let new_path = move_item_internal(path.clone(), new_parent_path)?;
+
+    // 2. Registrar no WatcherState para suprimir eco no watcher
+    if let Some(state) = app.try_state::<WatcherState>() {
+        let mut last_moved = state.last_moved.lock().unwrap();
+        let now = Instant::now();
+        last_moved.insert(path.clone(), now);
+        last_moved.insert(new_path.clone(), now);
+    }
+
+    // 3. Atualizar o índice SQLite diretamente
+    let db_state = app.state::<crate::commands::index_db::DbState>();
+    let mut conn_lock = db_state.conn.lock().map_err(|e| e.to_string())?;
+    if conn_lock.is_none() {
+        return Err("Banco de dados não inicializado".to_string());
+    }
+    let conn = conn_lock.as_mut().unwrap();
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    let source_path = Path::new(&path);
+    let target_path = Path::new(&new_path);
+
+    if target_path.is_file() {
+        // Excluir a nota antiga
+        crate::commands::index_db::delete_file_in_tx(&tx, &path)?;
+        
+        // Obter mtime e indexar nova nota
+        let mtime = get_mtime(target_path);
+        crate::commands::index_db::index_single_file_in_tx(&tx, target_path, mtime)?;
+    } else {
+        // É um diretório. Recursivamente encontrar e reindexar todas as notas .md dele.
+        let mut md_files = Vec::new();
+        get_all_md_files(target_path, &mut md_files);
+        
+        for md_file in md_files {
+            // Computa o caminho antigo correspondente de forma resiliente para Windows (Correction #2)
+            if let Ok(rel) = md_file.strip_prefix(target_path) {
+                let old_md_path = source_path.join(rel);
+                let old_md_str = old_md_path.to_string_lossy().into_owned();
+                
+                // Excluir nota antiga do índice
+                crate::commands::index_db::delete_file_in_tx(&tx, &old_md_str)?;
+            }
+            
+            // Indexar nova nota no índice
+            let mtime = get_mtime(&md_file);
+            crate::commands::index_db::index_single_file_in_tx(&tx, &md_file, mtime)?;
+        }
+    }
+
+    // Re-resolver links
+    let config = crate::commands::config::load_config(app.clone());
+    if let Some(vault_path) = config.current_vault {
+        crate::commands::index_db::re_resolve_all_links(&tx, &vault_path).map_err(|e| e.to_string())?;
+    }
+
+    tx.commit().map_err(|e| e.to_string())?;
+
+    Ok(new_path)
 }
 
 #[tauri::command]
@@ -489,7 +591,7 @@ fn handle_watcher_events<R: tauri::Runtime>(app: &tauri::AppHandle<R>, vault_pat
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     let watcher_state = app.state::<WatcherState>();
 
-    // 1. Limpar registros expirados de last_written (mais velhos que 1000ms)
+    // 1. Limpar registros expirados de last_written e last_moved (mais velhos que 1000ms)
     {
         let mut last_written = watcher_state.last_written.lock().unwrap();
         let now = Instant::now();
@@ -497,11 +599,49 @@ fn handle_watcher_events<R: tauri::Runtime>(app: &tauri::AppHandle<R>, vault_pat
             now.duration_since(record.timestamp) < std::time::Duration::from_millis(1000)
         });
     }
+    {
+        let mut last_moved = watcher_state.last_moved.lock().unwrap();
+        let now = Instant::now();
+        last_moved.retain(|_, timestamp| {
+            now.duration_since(*timestamp) < std::time::Duration::from_millis(1000)
+        });
+    }
+    
+    let is_move_echo = |path: &str| -> bool {
+        let last_moved = watcher_state.last_moved.lock().unwrap();
+        let now = Instant::now();
+        
+        last_moved.iter().any(|(moved_path, timestamp)| {
+            if now.duration_since(*timestamp) < std::time::Duration::from_millis(1000) {
+                #[cfg(target_os = "windows")]
+                {
+                    let path_lower = path.to_lowercase().replace('/', "\\");
+                    let moved_lower = moved_path.to_lowercase().replace('/', "\\");
+                    let path_norm = Path::new(&path_lower);
+                    let moved_norm = Path::new(&moved_lower);
+                    path_norm == moved_norm || path_norm.starts_with(moved_norm)
+                }
+                #[cfg(not(target_os = "windows"))]
+                {
+                    let path_buf = Path::new(path);
+                    let moved_buf = Path::new(moved_path);
+                    path_buf == moved_buf || path_buf.starts_with(moved_buf)
+                }
+            } else {
+                false
+            }
+        })
+    };
     
     let mut changes = Vec::new();
     
     // 2. Processar remoções e suprimir ecos de deleção transitória
     for path in paths_to_delete {
+        if is_move_echo(&path) {
+            println!("Echo suppression: completely ignored delete event for {} (internal move)", path);
+            continue;
+        }
+
         let is_echo_delete = {
             let last_written = watcher_state.last_written.lock().unwrap();
             if let Some(record) = last_written.get(&path) {
@@ -548,6 +688,11 @@ fn handle_watcher_events<R: tauri::Runtime>(app: &tauri::AppHandle<R>, vault_pat
     
     // 3. Processar indexação de novos/modificados
     for path in paths_to_index {
+        if is_move_echo(&path) {
+            println!("Echo suppression: completely ignored index event for {} (internal move)", path);
+            continue;
+        }
+
         let p = Path::new(&path);
         if !p.exists() || !p.is_file() {
             continue;
@@ -1245,6 +1390,182 @@ mod tests {
         assert_eq!(hash_control_before, hash_control_after, "O arquivo não-alvo não deve ser alterado");
 
         // 6. Limpeza
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_move_item_internal_validations() {
+        use sha2::{Sha256, Digest};
+
+        let temp_dir = env::temp_dir().join("mycellia_test_move_internal");
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let source_folder = temp_dir.join("origem");
+        let dest_folder = temp_dir.join("destino");
+        fs::create_dir_all(&source_folder).unwrap();
+        fs::create_dir_all(&dest_folder).unwrap();
+
+        let file_to_move = source_folder.join("nota.md");
+        fs::write(&file_to_move, "conteudo original").unwrap();
+
+        // Nota de controle (não-alvo)
+        let control_file = temp_dir.join("controle.md");
+        fs::write(&control_file, "controle intacto").unwrap();
+        let hash_before = {
+            let bytes = fs::read(&control_file).unwrap();
+            let mut hasher = Sha256::new();
+            hasher.update(&bytes);
+            format!("{:x}", hasher.finalize())
+        };
+
+        // 1. Sucesso: Mover nota.md da pasta "origem" para "destino"
+        let res = move_item_internal(
+            file_to_move.to_string_lossy().into_owned(),
+            dest_folder.to_string_lossy().into_owned(),
+        );
+        assert!(res.is_ok(), "Falhou ao mover nota.md para destino");
+        let new_path_str = res.unwrap();
+        let new_path = Path::new(&new_path_str);
+        assert!(new_path.exists());
+        assert!(!file_to_move.exists());
+        assert_eq!(fs::read_to_string(new_path).unwrap(), "conteudo original");
+
+        // 2. Colisão: Mover novamente para onde já existe (deve abortar com erro claro)
+        let file_another = source_folder.join("nota.md");
+        fs::write(&file_another, "outro conteudo").unwrap();
+        let res_col = move_item_internal(
+            file_another.to_string_lossy().into_owned(),
+            dest_folder.to_string_lossy().into_owned(),
+        );
+        assert!(res_col.is_err(), "Deveria falhar por colisão de mesmo nome");
+        assert!(res_col.unwrap_err().contains("Já existe um arquivo ou pasta"));
+
+        // 3. Anti-loop: Mover pasta destino para dentro de si mesma
+        let nested_folder = dest_folder.join("subpasta");
+        fs::create_dir_all(&nested_folder).unwrap();
+        let res_loop = move_item_internal(
+            dest_folder.to_string_lossy().into_owned(),
+            nested_folder.to_string_lossy().into_owned(),
+        );
+        assert!(res_loop.is_err(), "Deveria falhar ao tentar mover pasta para dentro de si mesma");
+        assert!(res_loop.unwrap_err().contains("Não é possível mover uma pasta para dentro de si mesma"));
+
+        // 4. Integridade do arquivo não-alvo (controle)
+        let hash_after = {
+            let bytes = fs::read(&control_file).unwrap();
+            let mut hasher = Sha256::new();
+            hasher.update(&bytes);
+            format!("{:x}", hasher.finalize())
+        };
+        assert_eq!(hash_before, hash_after, "O arquivo não-alvo foi corrompido ou modificado!");
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_watcher_suppress_move_events() {
+        use std::thread;
+        use std::time::Duration;
+
+        let temp_dir = env::temp_dir().join("mycellia_test_watcher_move");
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let vault_dir = temp_dir.join("vault");
+        let sub_folder = vault_dir.join("sub");
+        fs::create_dir_all(&sub_folder).unwrap();
+
+        let file_path = vault_dir.join("nota.md");
+        fs::write(&file_path, "conteudo").unwrap();
+
+        // Inicializa mock Tauri app
+        let app = tauri::test::mock_builder()
+            .manage(crate::commands::index_db::DbState::default())
+            .manage(WatcherState::default())
+            .build(tauri::generate_context!())
+            .unwrap();
+        let handle = app.handle();
+
+        // Configuração ativa
+        let config = crate::commands::config::AppConfig {
+            current_vault: Some(vault_dir.to_string_lossy().to_string()),
+            recent_vaults: vec![vault_dir.to_string_lossy().to_string()],
+            theme: "dark".to_string(),
+            sidebar_width: 260,
+        };
+        crate::commands::config::save_config(handle.clone(), config).unwrap();
+
+        // Inicializa DB em memória
+        let db_state = handle.state::<crate::commands::index_db::DbState>();
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute("CREATE TABLE IF NOT EXISTS notes (path TEXT PRIMARY KEY, title TEXT NOT NULL, last_modified INTEGER NOT NULL);", []).unwrap();
+        conn.execute("CREATE TABLE IF NOT EXISTS links (source_path TEXT NOT NULL, target_name TEXT NOT NULL, target_path TEXT, PRIMARY KEY (source_path, target_name), FOREIGN KEY (source_path) REFERENCES notes (path) ON DELETE CASCADE);", []).unwrap();
+        conn.execute("CREATE TABLE IF NOT EXISTS tags (note_path TEXT NOT NULL, tag TEXT NOT NULL, PRIMARY KEY (note_path, tag), FOREIGN KEY (note_path) REFERENCES notes (path) ON DELETE CASCADE);", []).unwrap();
+        conn.execute("CREATE TABLE IF NOT EXISTS properties (note_path TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY (note_path, key), FOREIGN KEY (note_path) REFERENCES notes (path) ON DELETE CASCADE);", []).unwrap();
+        conn.execute("CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(path, title, content, tags, properties);", []).unwrap();
+        
+        conn.execute(
+            "INSERT INTO notes (path, title, last_modified) VALUES (?, ?, ?)",
+            [file_path.to_string_lossy().to_string(), "nota".to_string(), 0.to_string()],
+        ).unwrap();
+        *db_state.conn.lock().unwrap() = Some(conn);
+
+        // Ouvir eventos vault-change
+        let changes_received = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let changes_clone = changes_received.clone();
+        handle.listen_any("vault-change", move |event| {
+            let payload: Vec<VaultChange> = serde_json::from_str(event.payload()).unwrap();
+            changes_clone.lock().unwrap().extend(payload);
+        });
+
+        // Iniciar watcher
+        let watcher_state = handle.state::<WatcherState>();
+        start_watching(handle.clone(), watcher_state, vault_dir.to_string_lossy().into_owned()).unwrap();
+
+        thread::sleep(Duration::from_millis(100));
+
+        // Mover via Tauri command move_item
+        let dest_path = sub_folder.join("nota.md");
+        let res = move_item(
+            handle.clone(),
+            file_path.to_string_lossy().into_owned(),
+            sub_folder.to_string_lossy().into_owned(),
+        );
+        assert!(res.is_ok(), "Falhou ao executar comando move_item: {:?}", res);
+
+        // Espera debounce
+        thread::sleep(Duration::from_millis(500));
+
+        // Parar o watcher
+        let _ = stop_watching(handle.state::<WatcherState>());
+
+        // 1. Atestar que no banco de dados o caminho antigo foi removido e o novo inserido
+        let conn_guard = db_state.conn.lock().unwrap();
+        let conn_ref = conn_guard.as_ref().unwrap();
+        
+        let exists_old: bool = conn_ref.query_row(
+            "SELECT 1 FROM notes WHERE path = ?",
+            [file_path.to_string_lossy().to_string()],
+            |_| Ok(true)
+        ).unwrap_or(false);
+        assert!(!exists_old, "O caminho antigo da nota deveria ter sido removido do índice.");
+
+        let exists_new: bool = conn_ref.query_row(
+            "SELECT 1 FROM notes WHERE path = ?",
+            [dest_path.to_string_lossy().to_string()],
+            |_| Ok(true)
+        ).unwrap_or(false);
+        assert!(exists_new, "O novo caminho da nota deveria estar inserido no índice.");
+
+        // 2. Atestar que os eventos de alteração foram silenciados (supressão de eco completa)
+        let changes = changes_received.lock().unwrap();
+        let has_non_echo_delete = changes.iter().any(|c| c.change_type == "delete" && !c.is_echo);
+        let has_non_echo_create = changes.iter().any(|c| c.change_type == "create" && !c.is_echo);
+        
+        assert!(!has_non_echo_delete, "Erro: detectado evento de deleção não suprimido.");
+        assert!(!has_non_echo_create, "Erro: detectado evento de criação não suprimido.");
+
         let _ = fs::remove_dir_all(&temp_dir);
     }
 }
