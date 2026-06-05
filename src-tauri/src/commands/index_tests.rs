@@ -675,50 +675,58 @@ Link vazio (deve ser ignorado): [[]].
         use std::sync::Mutex;
         use std::sync::atomic::AtomicBool;
 
-        let vault_path = "C:\\MyVault";
+        let temp_dir_vault = std::env::temp_dir().join("mycellia_test_deterministic_vault");
+        let _ = fs::remove_dir_all(&temp_dir_vault);
+        let _ = fs::create_dir_all(&temp_dir_vault);
+        let vault_path = temp_dir_vault.to_string_lossy().into_owned();
+
+        let path_a = temp_dir_vault.join("pasta_a").join("sub").join("Plano.md").to_string_lossy().into_owned();
+        let path_b = temp_dir_vault.join("pasta_b").join("Plano.md").to_string_lossy().into_owned();
+        let path_c = temp_dir_vault.join("pasta_c").join("Plano.md").to_string_lossy().into_owned();
+        let nota_a = temp_dir_vault.join("Nota A.md").to_string_lossy().into_owned();
+
         let all_paths = vec![
-            "C:\\MyVault\\pasta_a\\sub\\Plano.md".to_string(),
-            "C:\\MyVault\\pasta_b\\Plano.md".to_string(), // mais curto
-            "C:\\MyVault\\pasta_c\\Plano.md".to_string(), // mesmo tamanho que pasta_b, mas alfabeticamente posterior
+            path_a.clone(),
+            path_b.clone(), // mais curto
+            path_c.clone(), // mesmo tamanho que pasta_b, mas alfabeticamente posterior
         ];
 
         // 1. Testa a resolução determinística de caminho
-        let resolved = resolve_target_path("Plano", &all_paths, vault_path);
+        let resolved = resolve_target_path("Plano", &all_paths, &vault_path);
         // Menor comprimento: pasta_b (len 14) vs pasta_a/sub (len 18) vs pasta_c (len 14)
         // Empate no comprimento: pasta_b vs pasta_c. Ordem alfabética: pasta_b < pasta_c
-        // Vencedor esperado: C:\MyVault\pasta_b\Plano.md
-        assert_eq!(resolved, Some("C:\\MyVault\\pasta_b\\Plano.md".to_string()));
+        assert_eq!(resolved, Some(path_b.clone()));
 
         // 2. Testa a integração com o banco SQLite
         let conn = create_test_db();
         
         // Simula o index_vault inserindo as notas e os links
-        conn.execute("INSERT INTO notes (path, title, last_modified) VALUES (?, ?, ?)", rusqlite::params!["C:\\MyVault\\Nota A.md", "Nota A", 1000]).unwrap();
-        conn.execute("INSERT INTO notes (path, title, last_modified) VALUES (?, ?, ?)", rusqlite::params!["C:\\MyVault\\pasta_b\\Plano.md", "Plano", 1000]).unwrap();
-        conn.execute("INSERT INTO notes (path, title, last_modified) VALUES (?, ?, ?)", rusqlite::params!["C:\\MyVault\\pasta_c\\Plano.md", "Plano", 1000]).unwrap();
+        conn.execute("INSERT INTO notes (path, title, last_modified) VALUES (?, ?, ?)", rusqlite::params![&nota_a, "Nota A", 1000]).unwrap();
+        conn.execute("INSERT INTO notes (path, title, last_modified) VALUES (?, ?, ?)", rusqlite::params![&path_b, "Plano", 1000]).unwrap();
+        conn.execute("INSERT INTO notes (path, title, last_modified) VALUES (?, ?, ?)", rusqlite::params![&path_c, "Plano", 1000]).unwrap();
 
         // Nota A tem um link para [[Plano]]
         // O indexador resolve o link e insere
         let all_paths_in_db = vec![
-            "C:\\MyVault\\Nota A.md".to_string(),
-            "C:\\MyVault\\pasta_b\\Plano.md".to_string(),
-            "C:\\MyVault\\pasta_c\\Plano.md".to_string(),
+            nota_a.clone(),
+            path_b.clone(),
+            path_c.clone(),
         ];
-        let resolved_path = resolve_target_path("Plano", &all_paths_in_db, vault_path);
-        assert_eq!(resolved_path, Some("C:\\MyVault\\pasta_b\\Plano.md".to_string()));
+        let resolved_path = resolve_target_path("Plano", &all_paths_in_db, &vault_path);
+        assert_eq!(resolved_path, Some(path_b.clone()));
 
         conn.execute(
             "INSERT INTO links (source_path, target_name, target_path) VALUES (?, ?, ?)",
-            rusqlite::params!["C:\\MyVault\\Nota A.md", "Plano", resolved_path],
+            rusqlite::params![&nota_a, "Plano", resolved_path],
         ).unwrap();
 
         // 3. Simula a leitura e o get_backlinks
         // Cria a Nota A fictícia em disco temporário para a leitura de contexto do backlink
-        let temp_dir = std::env::temp_dir().join("mycellia_test_backlinks");
-        let _ = fs::remove_dir_all(&temp_dir);
-        let _ = fs::create_dir_all(&temp_dir);
+        let temp_dir_backlinks = std::env::temp_dir().join("mycellia_test_backlinks");
+        let _ = fs::remove_dir_all(&temp_dir_backlinks);
+        let _ = fs::create_dir_all(&temp_dir_backlinks);
         
-        let file_a_path = temp_dir.join("Nota A.md");
+        let file_a_path = temp_dir_backlinks.join("Nota A.md");
         fs::write(&file_a_path, "Texto antes\nEste é o link para [[Plano]] e mais texto.\nTexto depois").unwrap();
 
         // Cria o DbState
@@ -739,22 +747,21 @@ Link vazio (deve ser ignorado): [[]].
         }).unwrap();
         let all_notes: Vec<(String, String)> = rows.flatten().collect();
         assert_eq!(all_notes.len(), 3);
-        assert!(all_notes.iter().any(|(p, b)| p == "C:\\MyVault\\pasta_b\\Plano.md" && b == "Plano"));
+        assert!(all_notes.iter().any(|(p, b)| p == &path_b && b == "Plano"));
 
         // get_backlinks mock
-        // Procuramos backlinks para C:\MyVault\pasta_b\Plano.md
-        let target_path = "C:\\MyVault\\pasta_b\\Plano.md";
+        // Procuramos backlinks para path_b
         let mut stmt = db_conn.prepare(
             "SELECT l.source_path, n.title 
              FROM links l
              JOIN notes n ON l.source_path = n.path
              WHERE l.target_path = ?"
         ).unwrap();
-        let source_notes: Vec<(String, String)> = stmt.query_map([target_path], |row| {
+        let source_notes: Vec<(String, String)> = stmt.query_map([&path_b], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         }).unwrap().flatten().collect();
         assert_eq!(source_notes.len(), 1);
-        assert_eq!(source_notes[0].0, "C:\\MyVault\\Nota A.md");
+        assert_eq!(source_notes[0].0, nota_a);
 
         // Simula a leitura de arquivo temporário
         let content_a = fs::read_to_string(&file_a_path).unwrap();
@@ -768,7 +775,8 @@ Link vazio (deve ser ignorado): [[]].
         assert_eq!(context_line, "Este é o link para [[Plano]] e mais texto.");
 
         // Limpeza
-        let _ = fs::remove_dir_all(&temp_dir);
+        let _ = fs::remove_dir_all(&temp_dir_vault);
+        let _ = fs::remove_dir_all(&temp_dir_backlinks);
     }
 
     #[test]
@@ -976,7 +984,7 @@ Link vazio (deve ser ignorado): [[]].
 
         let app = tauri::test::mock_builder()
             .manage(DbState::default())
-            .build(tauri::generate_context!())
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .unwrap();
         let handle = app.handle();
 
@@ -1027,7 +1035,7 @@ Link vazio (deve ser ignorado): [[]].
         use tauri::Manager;
 
         let app = tauri::test::mock_builder()
-            .build(tauri::generate_context!())
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .unwrap();
         let handle = app.handle();
 
@@ -1078,7 +1086,7 @@ Link vazio (deve ser ignorado): [[]].
 
         let app = tauri::test::mock_builder()
             .manage(DbState::default())
-            .build(tauri::generate_context!())
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .unwrap();
         let handle = app.handle();
 

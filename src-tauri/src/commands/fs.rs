@@ -1131,7 +1131,7 @@ mod tests {
         let app = tauri::test::mock_builder()
             .manage(crate::commands::index_db::DbState::default())
             .manage(WatcherState::default())
-            .build(tauri::generate_context!())
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .unwrap();
         let handle = app.handle();
         
@@ -1201,7 +1201,7 @@ mod tests {
         let app = tauri::test::mock_builder()
             .manage(crate::commands::index_db::DbState::default())
             .manage(WatcherState::default())
-            .build(tauri::generate_context!())
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .unwrap();
         let handle = app.handle();
 
@@ -1282,7 +1282,7 @@ mod tests {
             .plugin(tauri_plugin_opener::init())
             .manage(crate::commands::index_db::DbState::default())
             .manage(WatcherState::default())
-            .build(tauri::generate_context!())
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .unwrap();
         let handle = app.handle();
 
@@ -1337,7 +1337,7 @@ mod tests {
         let app = tauri::test::mock_builder()
             .manage(crate::commands::index_db::DbState::default())
             .manage(WatcherState::default())
-            .build(tauri::generate_context!())
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .unwrap();
         let handle = app.handle();
 
@@ -1483,7 +1483,7 @@ mod tests {
         let app = tauri::test::mock_builder()
             .manage(crate::commands::index_db::DbState::default())
             .manage(WatcherState::default())
-            .build(tauri::generate_context!())
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .unwrap();
         let handle = app.handle();
 
@@ -1586,7 +1586,7 @@ mod tests {
         let app = tauri::test::mock_builder()
             .manage(crate::commands::index_db::DbState::default())
             .manage(WatcherState::default())
-            .build(tauri::generate_context!())
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .unwrap();
         let handle = app.handle();
         
