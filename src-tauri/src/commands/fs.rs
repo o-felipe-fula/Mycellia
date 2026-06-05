@@ -37,6 +37,27 @@ fn compute_hash(content: &str) -> String {
     format!("{:x}", hasher.finalize())
 }
 
+fn canonicalize_path(path: &str) -> String {
+    #[cfg(target_os = "windows")]
+    {
+        path.to_string()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let p = Path::new(path);
+        if let Ok(canon) = std::fs::canonicalize(p) {
+            canon.to_string_lossy().into_owned()
+        } else {
+            if let (Some(parent), Some(file_name)) = (p.parent(), p.file_name()) {
+                if let Ok(canon_parent) = std::fs::canonicalize(parent) {
+                    return canon_parent.join(file_name).to_string_lossy().into_owned();
+                }
+            }
+            path.to_string()
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct FileNode {
     pub name: String,
@@ -298,18 +319,24 @@ pub fn move_item_internal(path: String, new_parent_path: String) -> Result<Strin
 
 #[tauri::command]
 pub fn move_item<R: tauri::Runtime>(app: tauri::AppHandle<R>, path: String, new_parent_path: String) -> Result<String, String> {
-    // 1. Chamar a interna pura para mover fisicamente no disco
+    // 1. Resolver o caminho canônico do arquivo de origem ANTES de mover (ele ainda existe)
+    let canon_src = canonicalize_path(&path);
+
+    // 2. Chamar a interna pura para mover fisicamente no disco
     let new_path = move_item_internal(path.clone(), new_parent_path)?;
 
-    // 2. Registrar no WatcherState para suprimir eco no watcher
+    // 3. Resolver o caminho canônico do destino (que já foi criado)
+    let canon_dest = canonicalize_path(&new_path);
+
+    // 4. Registrar no WatcherState para suprimir eco no watcher com caminhos canônicos
     if let Some(state) = app.try_state::<WatcherState>() {
         let mut last_moved = state.last_moved.lock().unwrap();
         let now = Instant::now();
-        last_moved.insert(path.clone(), now);
-        last_moved.insert(new_path.clone(), now);
+        last_moved.insert(canon_src.clone(), now);
+        last_moved.insert(canon_dest.clone(), now);
     }
 
-    // 3. Atualizar o índice SQLite diretamente
+    // 5. Atualizar o índice SQLite diretamente usando caminhos canônicos para consistência
     let db_state = app.state::<crate::commands::index_db::DbState>();
     let mut conn_lock = db_state.conn.lock().map_err(|e| e.to_string())?;
     if conn_lock.is_none() {
@@ -318,12 +345,12 @@ pub fn move_item<R: tauri::Runtime>(app: tauri::AppHandle<R>, path: String, new_
     let conn = conn_lock.as_mut().unwrap();
     let tx = conn.transaction().map_err(|e| e.to_string())?;
 
-    let source_path = Path::new(&path);
-    let target_path = Path::new(&new_path);
+    let source_path = Path::new(&canon_src);
+    let target_path = Path::new(&canon_dest);
 
     if target_path.is_file() {
         // Excluir a nota antiga
-        crate::commands::index_db::delete_file_in_tx(&tx, &path)?;
+        crate::commands::index_db::delete_file_in_tx(&tx, &canon_src)?;
         
         // Obter mtime e indexar nova nota
         let mtime = get_mtime(target_path);
@@ -339,25 +366,26 @@ pub fn move_item<R: tauri::Runtime>(app: tauri::AppHandle<R>, path: String, new_
                 let old_md_path = source_path.join(rel);
                 let old_md_str = old_md_path.to_string_lossy().into_owned();
                 
-                // Excluir nota antiga do índice
+                // Excluir a nota antiga
                 crate::commands::index_db::delete_file_in_tx(&tx, &old_md_str)?;
+                
+                // Indexar nova nota no índice
+                let mtime = get_mtime(&md_file);
+                crate::commands::index_db::index_single_file_in_tx(&tx, &md_file, mtime)?;
             }
-            
-            // Indexar nova nota no índice
-            let mtime = get_mtime(&md_file);
-            crate::commands::index_db::index_single_file_in_tx(&tx, &md_file, mtime)?;
         }
     }
 
-    // Re-resolver links
+    // Re-resolver links usando o caminho do vault também canonicalizado para manter integridade
     let config = crate::commands::config::load_config(app.clone());
     if let Some(vault_path) = config.current_vault {
-        crate::commands::index_db::re_resolve_all_links(&tx, &vault_path).map_err(|e| e.to_string())?;
+        let canon_vault = canonicalize_path(&vault_path);
+        crate::commands::index_db::re_resolve_all_links(&tx, &canon_vault).map_err(|e| e.to_string())?;
     }
 
     tx.commit().map_err(|e| e.to_string())?;
 
-    Ok(new_path)
+    Ok(canon_dest)
 }
 
 #[tauri::command]
@@ -421,7 +449,8 @@ pub fn write_file<R: tauri::Runtime>(
     let hash = compute_hash(&content);
     if let Some(state) = app.try_state::<WatcherState>() {
         let mut last_written = state.last_written.lock().unwrap();
-        last_written.insert(path.clone(), WriteRecord {
+        let canon_path = canonicalize_path(&path);
+        last_written.insert(canon_path, WriteRecord {
             hash,
             timestamp: Instant::now(),
         });
@@ -437,8 +466,9 @@ pub fn start_watching<R: tauri::Runtime>(
 ) -> Result<(), String> {
     let _ = stop_watching(state.clone());
 
+    let canon_vault_path = canonicalize_path(&vault_path);
     let app_clone = app.clone();
-    let vault_path_clone = vault_path.clone();
+    let vault_path_clone = canon_vault_path.clone();
 
     let mut debouncer = new_debouncer(
         std::time::Duration::from_millis(100),
@@ -451,7 +481,7 @@ pub fn start_watching<R: tauri::Runtime>(
     ).map_err(|e| format!("Falha ao criar watcher: {}", e))?;
 
     debouncer.watcher()
-        .watch(Path::new(&vault_path), notify::RecursiveMode::Recursive)
+        .watch(Path::new(&canon_vault_path), notify::RecursiveMode::Recursive)
         .map_err(|e| format!("Falha ao registrar caminho no watcher: {}", e))?;
 
     let mut debouncer_lock = state.debouncer.lock().unwrap();
@@ -522,8 +552,8 @@ fn handle_watcher_events<R: tauri::Runtime>(app: &tauri::AppHandle<R>, vault_pat
         match event.event.kind {
             notify::EventKind::Modify(notify::event::ModifyKind::Name(notify::event::RenameMode::Both)) => {
                 if event.event.paths.len() >= 2 {
-                    let from_path = event.event.paths[0].to_string_lossy().into_owned();
-                    let to_path = event.event.paths[1].to_string_lossy().into_owned();
+                    let from_path = canonicalize_path(&event.event.paths[0].to_string_lossy());
+                    let to_path = canonicalize_path(&event.event.paths[1].to_string_lossy());
                     if !from_path.ends_with(".tmp") {
                         paths_to_delete.insert(from_path);
                     }
@@ -531,7 +561,7 @@ fn handle_watcher_events<R: tauri::Runtime>(app: &tauri::AppHandle<R>, vault_pat
                         paths_to_index.insert(to_path);
                     }
                 } else if !event.event.paths.is_empty() {
-                    let path = event.event.paths[0].to_string_lossy().into_owned();
+                    let path = canonicalize_path(&event.event.paths[0].to_string_lossy());
                     if !path.ends_with(".tmp") {
                         if Path::new(&path).exists() {
                             if path.ends_with(".md") {
@@ -546,7 +576,7 @@ fn handle_watcher_events<R: tauri::Runtime>(app: &tauri::AppHandle<R>, vault_pat
             notify::EventKind::Modify(notify::event::ModifyKind::Name(notify::event::RenameMode::From)) |
             notify::EventKind::Remove(_) => {
                 for p in event.event.paths {
-                    let path_str = p.to_string_lossy().into_owned();
+                    let path_str = canonicalize_path(&p.to_string_lossy());
                     if !path_str.ends_with(".tmp") {
                         paths_to_delete.insert(path_str);
                     }
@@ -556,7 +586,7 @@ fn handle_watcher_events<R: tauri::Runtime>(app: &tauri::AppHandle<R>, vault_pat
             notify::EventKind::Create(_) |
             notify::EventKind::Modify(_) => {
                 for p in event.event.paths {
-                    let path_str = p.to_string_lossy().into_owned();
+                    let path_str = canonicalize_path(&p.to_string_lossy());
                     if path_str.ends_with(".md") && !path_str.ends_with(".tmp") && p.is_file() {
                         paths_to_index.insert(path_str);
                     }
@@ -564,7 +594,7 @@ fn handle_watcher_events<R: tauri::Runtime>(app: &tauri::AppHandle<R>, vault_pat
             }
             _ => {
                 for p in event.event.paths {
-                    let path_str = p.to_string_lossy().into_owned();
+                    let path_str = canonicalize_path(&p.to_string_lossy());
                     if path_str.ends_with(".md") && !path_str.ends_with(".tmp") {
                         if p.exists() && p.is_file() {
                             paths_to_index.insert(path_str);
@@ -868,7 +898,8 @@ pub fn save_pasted_image<R: tauri::Runtime>(
     let path_str = target_path.to_string_lossy().into_owned();
     if let Some(state) = app.try_state::<WatcherState>() {
         let mut last_written = state.last_written.lock().unwrap();
-        last_written.insert(path_str, WriteRecord {
+        let canon_path = canonicalize_path(&path_str);
+        last_written.insert(canon_path, WriteRecord {
             hash,
             timestamp: Instant::now(),
         });
@@ -1143,9 +1174,10 @@ mod tests {
         conn.execute("CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(path, title, content, tags, properties);", []).unwrap();
         
         // Insere a nota no DB para que o watcher possa disparar a deleção se achar que ela sumiu
+        let canon_file_path = canonicalize_path(&file_path.to_string_lossy());
         conn.execute(
             "INSERT INTO notes (path, title, last_modified) VALUES (?, ?, ?)",
-            [file_path.to_string_lossy().to_string(), "nota".to_string(), 0.to_string()],
+            [canon_file_path.clone(), "nota".to_string(), 0.to_string()],
         ).unwrap();
         *db_state.conn.lock().unwrap() = Some(conn);
 
@@ -1174,14 +1206,17 @@ mod tests {
         // Parar o watcher
         let _ = stop_watching(handle.state::<WatcherState>());
 
-        // 6. Validar que nenhum evento de deleção foi recebido e que todos os eventos do arquivo A foram ecos
+        // 6. Validar que nenhum evento de deleção foi recebido e que todos os eventos do arquivo A foram ecos (comparando por caminhos canônicos)
         let changes = changes_received.lock().unwrap();
+        let canon_file_path = canonicalize_path(&file_path.to_string_lossy());
         
-        let has_delete = changes.iter().any(|c| c.change_type == "delete" && c.path == file_path.to_string_lossy());
-        let has_non_echo_modify = changes.iter().any(|c| c.change_type == "modify" && c.path == file_path.to_string_lossy() && !c.is_echo);
+        let has_delete = changes.iter().any(|c| c.change_type == "delete" && canonicalize_path(&c.path) == canon_file_path);
+        let has_non_echo_modify = changes.iter().any(|c| {
+            (c.change_type == "modify" || c.change_type == "create") && canonicalize_path(&c.path) == canon_file_path && !c.is_echo
+        });
 
         assert!(!has_delete, "Erro: detectado evento de deleção falso positivo para escrita própria!");
-        assert!(!has_non_echo_modify, "Erro: detectado evento de modificação sem is_echo = true para escrita própria!");
+        assert!(!has_non_echo_modify, "Erro: detectado evento de modificação/criação sem is_echo = true para escrita própria!");
 
         // Limpeza
         let _ = fs::remove_dir_all(&temp_dir);
@@ -1505,9 +1540,10 @@ mod tests {
         conn.execute("CREATE TABLE IF NOT EXISTS properties (note_path TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY (note_path, key), FOREIGN KEY (note_path) REFERENCES notes (path) ON DELETE CASCADE);", []).unwrap();
         conn.execute("CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(path, title, content, tags, properties);", []).unwrap();
         
+        let canon_file_path = canonicalize_path(&file_path.to_string_lossy());
         conn.execute(
             "INSERT INTO notes (path, title, last_modified) VALUES (?, ?, ?)",
-            [file_path.to_string_lossy().to_string(), "nota".to_string(), 0.to_string()],
+            [canon_file_path, "nota".to_string(), 0.to_string()],
         ).unwrap();
         *db_state.conn.lock().unwrap() = Some(conn);
 
@@ -1540,20 +1576,20 @@ mod tests {
         // Parar o watcher
         let _ = stop_watching(handle.state::<WatcherState>());
 
-        // 1. Atestar que no banco de dados o caminho antigo foi removido e o novo inserido
+        // 1. Atestar que no banco de dados o caminho antigo foi removido e o novo inserido (usando caminhos canônicos)
         let conn_guard = db_state.conn.lock().unwrap();
         let conn_ref = conn_guard.as_ref().unwrap();
         
         let exists_old: bool = conn_ref.query_row(
             "SELECT 1 FROM notes WHERE path = ?",
-            [file_path.to_string_lossy().to_string()],
+            [canonicalize_path(&file_path.to_string_lossy())],
             |_| Ok(true)
         ).unwrap_or(false);
         assert!(!exists_old, "O caminho antigo da nota deveria ter sido removido do índice.");
 
         let exists_new: bool = conn_ref.query_row(
             "SELECT 1 FROM notes WHERE path = ?",
-            [dest_path.to_string_lossy().to_string()],
+            [canonicalize_path(&dest_path.to_string_lossy())],
             |_| Ok(true)
         ).unwrap_or(false);
         assert!(exists_new, "O novo caminho da nota deveria estar inserido no índice.");
