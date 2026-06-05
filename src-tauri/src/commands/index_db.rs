@@ -147,6 +147,46 @@ fn get_all_md_files(dir: &Path, files: &mut Vec<PathBuf>) {
 
 // Auxiliar determinístico para resolver o caminho de destino de um wiki-link
 pub fn resolve_target_path(target_name: &str, all_paths: &[String], vault_path: &str) -> Option<String> {
+    // 1. Busca prioritária por correspondência exata (case-sensitive)
+    let mut exact_candidates = Vec::new();
+    for path in all_paths {
+        let p_path = Path::new(path);
+        let file_name = p_path.file_name().unwrap_or_default().to_string_lossy();
+        let basename = file_name.strip_suffix(".md").unwrap_or(&file_name);
+        
+        if basename == target_name {
+            exact_candidates.push(path.clone());
+            continue;
+        }
+        
+        if let Ok(rel) = p_path.strip_prefix(vault_path) {
+            let rel_str = rel.to_string_lossy().replace('\\', "/");
+            let rel_basename = rel_str.strip_suffix(".md").unwrap_or(&rel_str);
+            if rel_basename == target_name {
+                exact_candidates.push(path.clone());
+            }
+        }
+    }
+
+    if !exact_candidates.is_empty() {
+        // Desempate determinístico para matches exatos
+        exact_candidates.sort_by(|a, b| {
+            let rel_a = Path::new(a).strip_prefix(vault_path).map(|r| r.to_string_lossy().replace('\\', "/")).unwrap_or_default();
+            let rel_b = Path::new(b).strip_prefix(vault_path).map(|r| r.to_string_lossy().replace('\\', "/")).unwrap_or_default();
+            
+            let len_a = rel_a.len();
+            let len_b = rel_b.len();
+            
+            if len_a != len_b {
+                len_a.cmp(&len_b)
+            } else {
+                rel_a.cmp(&rel_b)
+            }
+        });
+        return exact_candidates.first().cloned();
+    }
+
+    // 2. Fallback case-insensitive se não houver match exato
     let target_lower = target_name.to_lowercase();
     let mut candidates = Vec::new();
 
@@ -173,9 +213,14 @@ pub fn resolve_target_path(target_name: &str, all_paths: &[String], vault_path: 
         return None;
     }
 
-    // Desempate determinístico:
-    // 1. Menor comprimento de caminho relativo ao vault_path.
-    // 2. Ordem alfabética do caminho relativo como critério secundário.
+    if candidates.len() > 1 {
+        eprintln!(
+            "Warning: Wiki-link collision warning for '{}'. Multiple matches exist case-insensitively: {:?}",
+            target_name, candidates
+        );
+    }
+
+    // Desempate determinístico secundário
     candidates.sort_by(|a, b| {
         let rel_a = Path::new(a).strip_prefix(vault_path).map(|r| r.to_string_lossy().replace('\\', "/")).unwrap_or_default();
         let rel_b = Path::new(b).strip_prefix(vault_path).map(|r| r.to_string_lossy().replace('\\', "/")).unwrap_or_default();

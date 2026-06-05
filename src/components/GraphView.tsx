@@ -77,9 +77,10 @@ function getLinkId(val: string | number | NodeObject<GraphNode> | undefined): st
 
 const isPathEqual = (pathA: string | null | undefined, pathB: string | null | undefined): boolean => {
   if (!pathA || !pathB) return false;
-  const normA = pathA.replace(/\\/g, '/').toLowerCase();
-  const normB = pathB.replace(/\\/g, '/').toLowerCase();
-  return normA === normB;
+  const isWindows = useAppStore.getState().platform === 'windows';
+  const cleanA = pathA.replace(/\\/g, '/');
+  const cleanB = pathB.replace(/\\/g, '/');
+  return isWindows ? cleanA.toLowerCase() === cleanB.toLowerCase() : cleanA === cleanB;
 };
 
 const GraphViewInner: React.FC = () => {

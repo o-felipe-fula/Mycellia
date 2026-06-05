@@ -1138,5 +1138,28 @@ Link vazio (deve ser ignorado): [[]].
         assert!(paths_hifas.contains(&"path/A.md".to_string()));
         assert!(paths_hifas.contains(&"path/B.md".to_string()));
     }
+
+    #[test]
+    fn test_case_sensitive_link_resolution_desempate() {
+        use crate::commands::index_db::resolve_target_path;
+
+        let vault_path = "/home/user/vault";
+        let all_paths = vec![
+            "/home/user/vault/Nota.md".to_string(),
+            "/home/user/vault/nota.md".to_string(),
+        ];
+
+        // 1. [[Nota]] resolve para Nota.md (match exato case-sensitive)
+        let resolved_nota_caps = resolve_target_path("Nota", &all_paths, vault_path);
+        assert_eq!(resolved_nota_caps, Some("/home/user/vault/Nota.md".to_string()));
+
+        // 2. [[nota]] resolve para nota.md (match exato case-sensitive)
+        let resolved_nota_lower = resolve_target_path("nota", &all_paths, vault_path);
+        assert_eq!(resolved_nota_lower, Some("/home/user/vault/nota.md".to_string()));
+
+        // 3. [[NOTA]] (sem match exato) cai no fallback case-insensitive e resolve deterministicamente para Nota.md (ASCII 'N' < 'n')
+        let resolved_nota_all_caps = resolve_target_path("NOTA", &all_paths, vault_path);
+        assert_eq!(resolved_nota_all_caps, Some("/home/user/vault/Nota.md".to_string()));
+    }
 }
 

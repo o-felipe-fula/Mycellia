@@ -26,6 +26,7 @@
     "@tauri-apps/plugin-dialog": "^2.7.1",
     "d3-force-3d": "^3.0.6",
     "lucide-react": "^0.390.0",
+    "mermaid": "^11.15.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-force-graph-2d": "^1.29.1",

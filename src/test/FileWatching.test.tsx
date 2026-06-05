@@ -269,4 +269,129 @@ describe('File Watching and Disk Synchronization tests', () => {
       vi.mocked(invoke).mockImplementation(originalMock);
     }
   });
+
+  it('Falso-delete do Watcher (Windows): nao deve fechar a aba se o arquivo ainda existir no disco', async () => {
+    await useAppStore.getState().initApp();
+    useAppStore.setState({ platform: 'windows' });
+    await useAppStore.getState().openTab('C:\\MyVault\\Nota A.md');
+    const unlisten = await useAppStore.getState().setupVaultChangeListener();
+
+    // O arquivo existe no disco (mockFiles contém o path)
+    expect(mockFiles['C:\\MyVault\\Nota A.md']).toBeDefined();
+
+    // Watcher emite evento 'delete'
+    (window as TestWindow).__triggerTauriEvent?.('vault-change', [
+      { path: 'C:\\MyVault\\Nota A.md', changeType: 'delete', isEcho: false },
+    ]);
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // A aba NAO deve fechar porque o arquivo fisico ainda existe
+    expect(useAppStore.getState().activeTab).toBe('C:\\MyVault\\Nota A.md');
+    unlisten();
+  });
+
+  it('Falso-delete do Watcher (Linux): nao deve fechar a aba se o arquivo ainda existir no disco', async () => {
+    await useAppStore.getState().initApp();
+    useAppStore.setState({ platform: 'linux' });
+    
+    // Adiciona uma nota com path estilo Linux no mockFiles
+    mockFiles['/home/user/vault/Nota Linux.md'] = 'Conteudo da Nota Linux';
+    
+    await useAppStore.getState().openTab('/home/user/vault/Nota Linux.md');
+    const unlisten = await useAppStore.getState().setupVaultChangeListener();
+
+    // O arquivo existe no disco (mockFiles contém o path)
+    expect(mockFiles['/home/user/vault/Nota Linux.md']).toBeDefined();
+
+    // Watcher emite evento 'delete'
+    (window as TestWindow).__triggerTauriEvent?.('vault-change', [
+      { path: '/home/user/vault/Nota Linux.md', changeType: 'delete', isEcho: false },
+    ]);
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // A aba NAO deve fechar porque o arquivo fisico ainda existe
+    expect(useAppStore.getState().activeTab).toBe('/home/user/vault/Nota Linux.md');
+    unlisten();
+  });
+
+  it('Delete Real do Watcher (Windows): deve fechar a aba se o arquivo nao existir mais no disco', async () => {
+    await useAppStore.getState().initApp();
+    useAppStore.setState({ platform: 'windows' });
+    await useAppStore.getState().openTab('C:\\MyVault\\Nota A.md');
+    const unlisten = await useAppStore.getState().setupVaultChangeListener();
+
+    // O arquivo some de fato
+    delete mockFiles['C:\\MyVault\\Nota A.md'];
+
+    // Watcher emite evento 'delete'
+    (window as TestWindow).__triggerTauriEvent?.('vault-change', [
+      { path: 'C:\\MyVault\\Nota A.md', changeType: 'delete', isEcho: false },
+    ]);
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // A aba deve ser fechada pois o arquivo de fato sumiu do disco
+    expect(useAppStore.getState().activeTab).toBeNull();
+    unlisten();
+  });
+
+  it('Delete Real do Watcher (Linux): deve fechar a aba se o arquivo nao existir mais no disco', async () => {
+    await useAppStore.getState().initApp();
+    useAppStore.setState({ platform: 'linux' });
+    
+    // Adiciona nota Linux
+    mockFiles['/home/user/vault/Nota Linux.md'] = 'Conteudo da Nota Linux';
+    
+    await useAppStore.getState().openTab('/home/user/vault/Nota Linux.md');
+    const unlisten = await useAppStore.getState().setupVaultChangeListener();
+
+    // O arquivo some de fato
+    delete mockFiles['/home/user/vault/Nota Linux.md'];
+
+    // Watcher emite evento 'delete'
+    (window as TestWindow).__triggerTauriEvent?.('vault-change', [
+      { path: '/home/user/vault/Nota Linux.md', changeType: 'delete', isEcho: false },
+    ]);
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // A aba deve ser fechada pois o arquivo de fato sumiu do disco
+    expect(useAppStore.getState().activeTab).toBeNull();
+    unlisten();
+  });
+
+  it('Wiki-link Desempate (Linux): prioriza exato, fallback para case-insensitive e avisa sobre colisao', async () => {
+    await useAppStore.getState().initApp();
+    useAppStore.setState({ 
+      platform: 'linux',
+      currentVault: '/home/user/vault'
+    });
+
+    // Mock das duas notas que diferem apenas no caso
+    mockFiles['/home/user/vault/Nota.md'] = 'Conteudo de Nota Caps';
+    mockFiles['/home/user/vault/nota.md'] = 'Conteudo de nota Lower';
+
+    // Atualiza a lista de notas existentes na store
+    await useAppStore.getState().refreshExistingNotes();
+
+    // 1. [[Nota]] deve abrir /home/user/vault/Nota.md (match exato)
+    await useAppStore.getState().handleWikiLinkClick('Nota');
+    expect(useAppStore.getState().activeTab).toBe('/home/user/vault/Nota.md');
+
+    // 2. [[nota]] deve abrir /home/user/vault/nota.md (match exato)
+    await useAppStore.getState().handleWikiLinkClick('nota');
+    expect(useAppStore.getState().activeTab).toBe('/home/user/vault/nota.md');
+
+    // 3. [[NOTA]] (sem match exato) deve cair no fallback e disparar aviso de ambiguidade
+    useAppStore.setState({ globalError: null });
+    await useAppStore.getState().handleWikiLinkClick('NOTA');
+    
+    // Deve abrir uma das duas notas (pelo menos resolve para uma delas, por ex Nota.md ou nota.md)
+    expect(useAppStore.getState().activeTab).toBeDefined();
+    
+    // Deve disparar o aviso de colisão no globalError
+    expect(useAppStore.getState().globalError).toContain('Aviso de Ambiguidade: Múltiplos arquivos colidindo insensivelmente');
+  });
 });

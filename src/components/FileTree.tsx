@@ -28,7 +28,7 @@ interface FileTreeProps {
 let activeDragPath: string | null = null;
 
 export default function FileTree({ node }: FileTreeProps) {
-  const { createItem, renameItem, deleteItem, openTab, activeTab, openInDefaultApp, moveItem } = useAppStore();
+  const { createItem, renameItem, deleteItem, openTab, activeTab, openInDefaultApp, moveItem, platform } = useAppStore();
   const [expanded, setExpanded] = useState<Record<string, boolean>>({ [node.path]: true });
   const [draggedOverPath, setDraggedOverPath] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; target: FileNode } | null>(
@@ -40,7 +40,10 @@ export default function FileTree({ node }: FileTreeProps) {
     const targetParent = getTargetParent(targetItem, node.path);
     const sourceParent = getParentPath(dragged);
 
-    const normalize = (p: string) => p.replace(/\\/g, '/').toLowerCase();
+    const normalize = (p: string) => {
+      const clean = p.replace(/\\/g, '/');
+      return platform === 'windows' ? clean.toLowerCase() : clean;
+    };
     const normDragged = normalize(dragged);
     const normTarget = normalize(targetItem.path);
     const normTargetParent = normalize(targetParent);
@@ -230,7 +233,10 @@ export default function FileTree({ node }: FileTreeProps) {
             const sourceParent = getParentPath(sourcePath);
 
             // Block moving onto itself or its current parent or folder loop
-            const normalize = (p: string) => p.replace(/\\/g, '/').toLowerCase();
+            const normalize = (p: string) => {
+              const clean = p.replace(/\\/g, '/');
+              return platform === 'windows' ? clean.toLowerCase() : clean;
+            };
             const normSource = normalize(sourcePath);
             const normTargetParent = normalize(targetParent);
             const normSourceParent = normalize(sourceParent);
@@ -321,9 +327,13 @@ export default function FileTree({ node }: FileTreeProps) {
         if (!sourcePath) return;
         const targetParent = node.path;
         const sourceParent = getParentPath(sourcePath);
+        const normalizeMain = (p: string) => {
+          const clean = p.replace(/\\/g, '/');
+          return platform === 'windows' ? clean.toLowerCase() : clean;
+        };
         if (
           sourcePath === targetParent ||
-          sourceParent.replace(/\\/g, '/').toLowerCase() === targetParent.replace(/\\/g, '/').toLowerCase()
+          normalizeMain(sourceParent) === normalizeMain(targetParent)
         ) {
           return;
         }

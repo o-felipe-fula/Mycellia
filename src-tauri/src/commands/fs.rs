@@ -1568,4 +1568,83 @@ mod tests {
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
+
+    #[test]
+    fn test_watcher_linux_inotify_atomic_and_external_writes() {
+        use std::thread;
+        use std::time::Duration;
+        
+        // 1. Criar diretório temporário no disco
+        let temp_dir = std::env::temp_dir().join("mycellia_test_watcher_linux");
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
+        
+        let file_path = temp_dir.join("nota_linux.md");
+        fs::write(&file_path, "Conteudo Inicial").unwrap();
+
+        // 2. Inicializar mock Tauri app
+        let app = tauri::test::mock_builder()
+            .manage(crate::commands::index_db::DbState::default())
+            .manage(WatcherState::default())
+            .build(tauri::generate_context!())
+            .unwrap();
+        let handle = app.handle();
+        
+        // Inicializa DbState com conexão em memória
+        let db_state = handle.state::<crate::commands::index_db::DbState>();
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute("CREATE TABLE IF NOT EXISTS notes (path TEXT PRIMARY KEY, title TEXT NOT NULL, last_modified INTEGER NOT NULL);", []).unwrap();
+        conn.execute("CREATE TABLE IF NOT EXISTS links (source_path TEXT NOT NULL, target_name TEXT NOT NULL, target_path TEXT, PRIMARY KEY (source_path, target_name), FOREIGN KEY (source_path) REFERENCES notes (path) ON DELETE CASCADE);", []).unwrap();
+        conn.execute("CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(path, title, content, tags, properties);", []).unwrap();
+        
+        // Insere a nota no DB
+        conn.execute(
+            "INSERT INTO notes (path, title, last_modified) VALUES (?, ?, ?)",
+            [file_path.to_string_lossy().to_string(), "nota_linux".to_string(), 0.to_string()],
+        ).unwrap();
+        *db_state.conn.lock().unwrap() = Some(conn);
+
+        // 3. Registrar o listener para "vault-change"
+        let changes_received = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let changes_clone = changes_received.clone();
+        handle.listen_any("vault-change", move |event| {
+            let payload: Vec<VaultChange> = serde_json::from_str(event.payload()).unwrap();
+            changes_clone.lock().unwrap().extend(payload);
+        });
+
+        // 4. Iniciar o watcher na pasta
+        let watcher_state = handle.state::<WatcherState>();
+        start_watching(handle.clone(), watcher_state, temp_dir.to_string_lossy().into_owned()).unwrap();
+
+        thread::sleep(Duration::from_millis(100));
+
+        // 5. Simular escrita externa (que causa exclusão temporária seguida de recriação/modificação no Linux/inotify)
+        let new_content = "Conteudo Alterado Externamente";
+        let temp_file_path = file_path.with_extension("tmp");
+        fs::write(&temp_file_path, new_content).unwrap();
+        fs::rename(&temp_file_path, &file_path).unwrap();
+
+        // Aguardar o debounce do watcher e atualização do banco
+        thread::sleep(Duration::from_millis(600));
+
+        // Parar o watcher
+        let _ = stop_watching(handle.state::<WatcherState>());
+
+        // 6. Asserções
+        // Asserção 1: O arquivo físico continua existindo
+        assert!(file_path.exists(), "Erro: O arquivo físico nota_linux.md deveria existir no disco!");
+
+        // Asserção 2: O banco de dados (SQLite) continua com a nota indexada (não foi excluída permanentemente pelo falso-delete)
+        let conn_lock = db_state.conn.lock().unwrap();
+        let db = conn_lock.as_ref().unwrap();
+        let note_exists_in_db: bool = db.query_row(
+            "SELECT exists(SELECT 1 FROM notes WHERE path = ?)",
+            [file_path.to_string_lossy().to_string()],
+            |row| row.get(0)
+        ).unwrap();
+        assert!(note_exists_in_db, "Erro: nota foi excluída permanentemente do índice SQLite devido a um falso-delete!");
+
+        // Limpeza
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
 }

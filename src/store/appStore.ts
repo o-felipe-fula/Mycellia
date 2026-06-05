@@ -312,6 +312,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   initApp: async () => {
     const initStart = performance.now();
     try {
+      let osPlatform = 'windows';
+      try {
+        osPlatform = await invoke<string>('get_platform');
+      } catch (err) {
+        console.error('Failed to get platform:', err);
+      }
+      set({ platform: osPlatform });
+
       const config = await invoke<AppConfig>('load_config');
       dbLoadTime = performance.now() - initStart;
 
@@ -331,19 +339,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         document.documentElement.classList.remove('dark');
       }
 
-      let osPlatform = 'windows';
-      try {
-        osPlatform = await invoke<string>('get_platform');
-      } catch (err) {
-        console.error('Failed to get platform:', err);
-      }
-
       set({
         theme: finalTheme,
         currentVault: config.current_vault,
         recentVaults: config.recent_vaults,
         sidebarWidth: config.sidebar_width,
-        platform: osPlatform,
       });
 
       // Se havia um vault ativo anterior, carrega-o
@@ -534,7 +534,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { currentVault, openTabs, activeTab } = get();
     if (!currentVault) return;
 
-    const normalizePath = (p: string) => p.replace(/\\/g, '/').toLowerCase();
+    const normalizePath = (p: string) => {
+      const clean = p.replace(/\\/g, '/');
+      return get().platform === 'windows' ? clean.toLowerCase() : clean;
+    };
     const isPathUnderOrEqual = (child: string, parent: string) => {
       const normChild = normalizePath(child);
       const normParent = normalizePath(parent);
@@ -877,10 +880,36 @@ export const useAppStore = create<AppState>((set, get) => ({
             const isDirty = currentSerialized !== state.activeNoteBaseSerialized;
 
             if (affected.changeType === 'delete') {
-              if (isDirty) {
-                set({ conflictModal: { path: activeTab, diskContent: null, localContentSnapshot } });
+              // Re-checa fisicamente no disco antes de realizar a ação destrutiva (fechar aba) (Incidente 05)
+              let fileExists = false;
+              let diskContent: string | null = null;
+              try {
+                diskContent = await invoke<string>('read_file', { path: activeTab });
+                fileExists = true;
+              } catch (err) {
+                fileExists = false;
+              }
+
+              if (fileExists) {
+                // O arquivo na verdade existe! Trata como modify/reload silencioso ou conflito
+                if (isDirty) {
+                  set({ conflictModal: { path: activeTab, diskContent, localContentSnapshot } });
+                } else {
+                  await get().loadActiveNote(activeTab);
+                  const editorEl = document.querySelector('.cm-editor');
+                  if (editorEl) {
+                    editorEl.classList.remove('animate-blink');
+                    void (editorEl as HTMLElement).offsetWidth;
+                    editorEl.classList.add('animate-blink');
+                  }
+                }
               } else {
-                await get().closeTab(activeTab);
+                // O arquivo foi de fato excluído do disco (deleção real)
+                if (isDirty) {
+                  set({ conflictModal: { path: activeTab, diskContent: null, localContentSnapshot } });
+                } else {
+                  await get().closeTab(activeTab);
+                }
               }
             } else if (affected.changeType === 'modify' || affected.changeType === 'create') {
               if (isDirty) {
@@ -946,6 +975,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       });
 
       const existingMap = new Map<string, string>();
+      const isWindows = get().platform === 'windows';
+
+      // 1. Lowercase keys for fallback/case-insensitive resolution (tie-broken by notesWithRel sort order)
       for (const note of notesWithRel) {
         const baseLower = note.basename.toLowerCase();
         const relLower = note.relPath.toLowerCase();
@@ -954,6 +986,19 @@ export const useAppStore = create<AppState>((set, get) => ({
         existingMap.set(baseLower, note.path);
         existingMap.set(relLower, note.path);
         existingMap.set(relNoExt, note.path);
+      }
+
+      // 2. Exact case keys (take priority on case-sensitive platforms)
+      if (!isWindows) {
+        for (const note of notesWithRel) {
+          const base = note.basename;
+          const rel = note.relPath;
+          const relNoExt = rel.endsWith('.md') ? rel.slice(0, -3) : rel;
+
+          existingMap.set(base, note.path);
+          existingMap.set(rel, note.path);
+          existingMap.set(relNoExt, note.path);
+        }
       }
 
       set({ existingNotes: existingMap });
@@ -974,16 +1019,44 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   handleWikiLinkClick: async (targetName: string) => {
-    const { existingNotes, currentVault } = get();
+    const { existingNotes, currentVault, platform } = get();
     if (!currentVault) return;
 
     // Sincroniza qualquer alteração pendente antes de trocar de aba ou criar item
     await get().flushPendingSave();
 
-    const targetLower = targetName.toLowerCase();
-    const targetPath = existingNotes.get(targetLower);
+    const isWindows = platform === 'windows';
+    let targetPath = isWindows ? existingNotes.get(targetName.toLowerCase()) : existingNotes.get(targetName);
+    let fellBack = false;
+
+    if (!targetPath && !isWindows) {
+      targetPath = existingNotes.get(targetName.toLowerCase());
+      if (targetPath) {
+        fellBack = true;
+      }
+    }
 
     if (targetPath) {
+      if (fellBack) {
+        try {
+          const notes = await invoke<{ path: string; basename: string }[]>('get_all_notes');
+          const matches = notes.filter(n => {
+            const baseLower = n.basename.toLowerCase();
+            const relPath = n.path.replace(/\\/g, '/');
+            const vaultNorm = currentVault.replace(/\\/g, '/');
+            const rel = relPath.startsWith(vaultNorm) ? relPath.slice(vaultNorm.length).replace(/^\//, '') : relPath;
+            const relNoExt = rel.endsWith('.md') ? rel.slice(0, -3) : rel;
+            const targetLower = targetName.toLowerCase();
+            return baseLower === targetLower || rel.toLowerCase() === targetLower || relNoExt.toLowerCase() === targetLower;
+          });
+          if (matches.length > 1) {
+            console.warn(`Wiki-link resolution collision warning: Multiple files match '${targetName}' case-insensitively.`);
+            get().setGlobalError(`Aviso de Ambiguidade: Múltiplos arquivos colidindo insensivelmente para o link [[${targetName}]].`);
+          }
+        } catch (e) {
+          console.error('Failed to check link collisions:', e);
+        }
+      }
       await get().openTab(targetPath);
     } else {
       const filename = targetName.endsWith('.md') ? targetName : `${targetName}.md`;
@@ -1004,6 +1077,14 @@ export const useAppStore = create<AppState>((set, get) => ({
 
         updatedNotes.set(relPath.toLowerCase(), absolutePath);
         updatedNotes.set(relNoExt.toLowerCase(), absolutePath);
+
+        if (!isWindows) {
+          const base = targetName;
+          updatedNotes.set(base, absolutePath);
+          updatedNotes.set(relPath, absolutePath);
+          updatedNotes.set(relNoExt, absolutePath);
+        }
+
         set({ existingNotes: updatedNotes });
 
         await get().openTab(absolutePath);
