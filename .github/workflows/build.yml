@@ -43,6 +43,7 @@ jobs:
         run: npx vitest run
 
       - name: Run Backend Tests
+        working-directory: src-tauri
         run: cargo test
 
       - name: Build Tauri App
