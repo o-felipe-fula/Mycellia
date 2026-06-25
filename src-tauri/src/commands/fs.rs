@@ -266,16 +266,14 @@ fn get_mtime(p: &Path) -> i64 {
 fn get_all_md_files(dir: &Path, files: &mut Vec<PathBuf>) {
     if dir.is_dir() {
         if let Ok(entries) = std::fs::read_dir(dir) {
-            for entry in entries {
-                if let Ok(entry) = entry {
-                    let path = entry.path();
-                    if path.is_dir() {
-                        get_all_md_files(&path, files);
-                    } else if path.is_file() {
-                        if let Some(ext) = path.extension() {
-                            if ext == "md" {
-                                files.push(path);
-                            }
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    get_all_md_files(&path, files);
+                } else if path.is_file() {
+                    if let Some(ext) = path.extension() {
+                        if ext == "md" {
+                            files.push(path);
                         }
                     }
                 }
