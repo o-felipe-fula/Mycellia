@@ -55,3 +55,6 @@ Specs/
 
 # Memória/guia operacional do Claude Code (local, não publicar)
 CLAUDE.md
+
+# Cobertura de testes
+coverage/
