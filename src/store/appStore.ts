@@ -352,6 +352,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     } catch (e) {
       console.error('Failed to initialize app config:', e);
+      get().setGlobalError(`Falha ao inicializar o app: ${e}`);
     }
   },
 
@@ -415,7 +416,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     hasIndexed = false;
     hasGraphLoaded = false;
     treeLoadStartTime = performance.now();
-    const tree = await invoke<FileNode>('load_vault_tree', { vaultPath: path });
+    let tree: FileNode;
+    try {
+      tree = await invoke<FileNode>('load_vault_tree', { vaultPath: path });
+    } catch (e) {
+      console.error('Failed to load vault tree:', e);
+      get().setGlobalError(`Falha ao carregar o vault: ${e}`);
+      return;
+    }
     treeLoadTime = performance.now() - treeLoadStartTime;
     hasTreeLoaded = true;
 
