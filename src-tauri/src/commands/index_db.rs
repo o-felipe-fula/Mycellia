@@ -1,3 +1,7 @@
+// Tripwire F0: barra unwrap/expect NOVO neste módulo de I/O (clippy::unwrap_used/expect_used).
+// Sites existentes recebem #[allow] anotado com // TODO F1 (dívida a converter para Result no F1).
+#![deny(clippy::unwrap_used, clippy::expect_used)]
+
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -239,6 +243,7 @@ pub fn resolve_target_path(target_name: &str, all_paths: &[String], vault_path: 
 }
 
 // Indexa o vault de forma incremental
+#[allow(clippy::unwrap_used, clippy::expect_used)] // TODO F1: converter para Result
 fn index_vault(app: &AppHandle, vault_path: &str) -> Result<(), String> {
     let state = app.state::<DbState>();
     let mut conn_lock = state.conn.lock().map_err(|e| format!("Erro no lock de conexão: {}", e))?;
@@ -437,6 +442,7 @@ pub fn rebuild_index(app: AppHandle, vault_path: String) -> Result<(), String> {
 }
 
 // Comando Tauri: Busca Full-Text no FTS5
+#[allow(clippy::unwrap_used, clippy::expect_used)] // TODO F1: converter para Result
 #[tauri::command]
 pub fn search_notes<R: tauri::Runtime>(app: tauri::AppHandle<R>, query: String) -> Result<Vec<SearchResult>, String> {
     let state = app.state::<DbState>();
@@ -476,6 +482,7 @@ pub fn search_notes<R: tauri::Runtime>(app: tauri::AppHandle<R>, query: String) 
 }
 
 // Comando Tauri: Retorna todos os caminhos que combinam com a busca FTS5 (sem limite e sem snippets)
+#[allow(clippy::unwrap_used, clippy::expect_used)] // TODO F1: converter para Result
 #[tauri::command]
 pub fn get_matching_paths<R: tauri::Runtime>(app: tauri::AppHandle<R>, query: String) -> Result<Vec<String>, String> {
     let state = app.state::<DbState>();
@@ -522,6 +529,7 @@ pub fn start_indexing_command(app: AppHandle, vault_path: String) -> Result<(), 
 }
 
 // Comando Tauri: Retorna a lista de todas as notas indexadas com seus basenames (title no DB)
+#[allow(clippy::unwrap_used, clippy::expect_used)] // TODO F1: converter para Result
 #[tauri::command]
 pub fn get_all_notes(app: AppHandle) -> Result<Vec<NoteInfo>, String> {
     let state = app.state::<DbState>();
@@ -548,6 +556,7 @@ pub fn get_all_notes(app: AppHandle) -> Result<Vec<NoteInfo>, String> {
 }
 
 // Comando Tauri: Busca backlinks para a nota ativa de forma precisa (usando target_path)
+#[allow(clippy::unwrap_used, clippy::expect_used)] // TODO F1: converter para Result
 #[tauri::command]
 pub fn get_backlinks(app: AppHandle, target_path: String) -> Result<Vec<Backlink>, String> {
     let state = app.state::<DbState>();
@@ -786,6 +795,7 @@ pub struct GraphData {
     pub links: Vec<GraphLink>,
 }
 
+#[allow(clippy::unwrap_used, clippy::expect_used)] // TODO F1: converter para Result
 #[tauri::command]
 pub fn get_graph_data<R: tauri::Runtime>(app: tauri::AppHandle<R>) -> Result<GraphData, String> {
     let state = app.state::<DbState>();

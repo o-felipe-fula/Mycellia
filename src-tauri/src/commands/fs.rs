@@ -1,3 +1,7 @@
+// Tripwire F0: barra unwrap/expect NOVO neste módulo de I/O (clippy::unwrap_used/expect_used).
+// Sites existentes recebem #[allow] anotado com // TODO F1 (dívida a converter para Result no F1).
+#![deny(clippy::unwrap_used, clippy::expect_used)]
+
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -315,6 +319,7 @@ pub fn move_item_internal(path: String, new_parent_path: String) -> Result<Strin
     Ok(dest_path.to_string_lossy().into_owned())
 }
 
+#[allow(clippy::unwrap_used, clippy::expect_used)] // TODO F1: converter para Result
 #[tauri::command]
 pub fn move_item<R: tauri::Runtime>(app: tauri::AppHandle<R>, path: String, new_parent_path: String) -> Result<String, String> {
     // 1. Resolver o caminho canônico do arquivo de origem ANTES de mover (ele ainda existe)
@@ -437,6 +442,7 @@ fn write_file_internal(path: &str, content: &str, allow_create: bool) -> Result<
     Ok(())
 }
 
+#[allow(clippy::unwrap_used, clippy::expect_used)] // TODO F1: converter para Result
 #[tauri::command]
 pub fn write_file<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
@@ -456,6 +462,7 @@ pub fn write_file<R: tauri::Runtime>(
     write_file_internal(&path, &content, allow_create)
 }
 
+#[allow(clippy::unwrap_used, clippy::expect_used)] // TODO F1: converter para Result
 #[tauri::command]
 pub fn start_watching<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
@@ -488,6 +495,7 @@ pub fn start_watching<R: tauri::Runtime>(
     Ok(())
 }
 
+#[allow(clippy::unwrap_used, clippy::expect_used)] // TODO F1: converter para Result
 #[tauri::command]
 pub fn stop_watching(
     state: tauri::State<'_, WatcherState>,
@@ -540,6 +548,7 @@ pub struct VaultChange {
     pub is_echo: bool,
 }
 
+#[allow(clippy::unwrap_used, clippy::expect_used)] // TODO F1: converter para Result
 fn handle_watcher_events<R: tauri::Runtime>(app: &tauri::AppHandle<R>, vault_path: &str, events: Vec<DebouncedEvent>) -> Result<(), String> {
     use std::collections::HashSet;
     
@@ -822,6 +831,7 @@ fn format_timestamp_utc(secs: u64) -> String {
     format!("{:04}{:02}{:02}{:02}{:02}{:02}", year, month, day, hour, minute, second)
 }
 
+#[allow(clippy::unwrap_used, clippy::expect_used)] // TODO F1: converter para Result
 #[tauri::command]
 pub fn save_pasted_image<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
@@ -908,6 +918,7 @@ pub fn save_pasted_image<R: tauri::Runtime>(
 
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
     use std::env;
