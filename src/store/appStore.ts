@@ -257,6 +257,31 @@ const checkAndPrintConsolidatedMetrics = () => {
 };
 
 
+// Falha de save (F1.2): notificação persistente, com "Tentar de novo", deduplicada (uma por vez),
+// preservando o texto (restaura pendingSave). O fluxo de escrita atômica em si NÃO muda.
+let saveErrorNotifId: string | null = null;
+
+function clearSaveError() {
+  if (saveErrorNotifId) {
+    useAppStore.getState().dismissNotification(saveErrorNotifId);
+    saveErrorNotifId = null;
+  }
+}
+
+function handleSaveFailure(path: string, content: string, e: unknown) {
+  const msg = `Falha ao salvar a nota: ${e}`;
+  console.error(msg, e);
+  // Restaura o pendingSave para NÃO perder o texto e permitir o retry (botão / próximo autosave).
+  pendingSave = { path, content };
+  if (saveErrorNotifId) {
+    useAppStore.getState().dismissNotification(saveErrorNotifId);
+  }
+  saveErrorNotifId = useAppStore.getState().notify('error', msg, {
+    persistent: true,
+    action: { label: 'Tentar de novo', run: () => useAppStore.getState().flushPendingSave() },
+  });
+}
+
 const scheduleSaveHelper = () => {
   if (saveTimeout) {
     clearTimeout(saveTimeout);
@@ -271,10 +296,9 @@ const scheduleSaveHelper = () => {
       if (useAppStore.getState().activeTab === path) {
         useAppStore.setState({ activeNoteBaseSerialized: content });
       }
+      clearSaveError();
     } catch (e) {
-      const msg = `Falha ao salvar nota (agendado): ${e}`;
-      console.error(msg, e);
-      useAppStore.getState().setGlobalError(msg);
+      handleSaveFailure(path, content, e);
     }
   }, 500);
 };
@@ -842,10 +866,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (get().activeTab === path) {
         set({ activeNoteBaseSerialized: content });
       }
+      clearSaveError();
     } catch (e) {
-      const msg = `Falha ao salvar nota (síncrono): ${e}`;
-      console.error(msg, e);
-      get().setGlobalError(msg);
+      handleSaveFailure(path, content, e);
     }
   },
 
