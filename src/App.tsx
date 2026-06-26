@@ -18,6 +18,7 @@ import {
 import FileTree from './components/FileTree';
 import MarkdownEditor from './components/MarkdownEditor';
 import BacklinksPanel from './components/BacklinksPanel';
+import { ToastContainer } from './components/ToastContainer';
 import { GraphView } from './components/GraphView';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import TitleBar from './components/TitleBar';
@@ -805,6 +806,7 @@ export default function App() {
           </div>
         </div>
       )}
+      <ToastContainer />
       {currentVault && <StatusBar />}
     </div>
   );

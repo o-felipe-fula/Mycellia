@@ -5,6 +5,31 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import YAML from 'yaml';
 import { parseRawNote, serializeRawNote } from '../utils/markdown';
 
+// --- Sistema de notificações (F1.2) -------------------------------------------------
+// Toasts transitórios (somem sozinhos) para falhas que hoje eram mudas (só console.error).
+// O canal "grave/persistente" (falha ao salvar, etc.) continua na faixa `globalError`.
+export type NotificationType = 'error' | 'warning' | 'success' | 'info';
+
+export interface NotificationAction {
+  label: string;
+  run: () => void;
+}
+
+export interface AppNotification {
+  id: string;
+  type: NotificationType;
+  message: string;
+  /** Persistente fica até o usuário fechar; transitório some após `ttlMs`. */
+  persistent: boolean;
+  action?: NotificationAction;
+}
+
+export interface NotifyOptions {
+  persistent?: boolean;
+  ttlMs?: number;
+  action?: NotificationAction;
+}
+
 export interface FileNode {
   name: string;
   path: string;
@@ -109,6 +134,9 @@ interface AppState {
   isNoteDirty: boolean;
   globalError: string | null;
   setGlobalError: (error: string | null) => void;
+  notifications: AppNotification[];
+  notify: (type: NotificationType, message: string, opts?: NotifyOptions) => string;
+  dismissNotification: (id: string) => void;
 
   // Ações de Inicialização e Configuração
   initApp: () => Promise<void>;
@@ -308,6 +336,22 @@ export const useAppStore = create<AppState>((set, get) => ({
   isNoteDirty: false,
   globalError: null,
   setGlobalError: (error) => set({ globalError: error }),
+  notifications: [],
+  notify: (type, message, opts) => {
+    const id = `n_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    const persistent = opts?.persistent ?? false;
+    const notification: AppNotification = { id, type, message, persistent, action: opts?.action };
+    const logFn = type === 'error' ? console.error : type === 'warning' ? console.warn : console.log;
+    logFn(`[notify:${type}] ${message}`);
+    set((s) => ({ notifications: [...s.notifications, notification] }));
+    if (!persistent) {
+      const ttl = opts?.ttlMs ?? 5000;
+      setTimeout(() => get().dismissNotification(id), ttl);
+    }
+    return id;
+  },
+  dismissNotification: (id) =>
+    set((s) => ({ notifications: s.notifications.filter((n) => n.id !== id) })),
 
   initApp: async () => {
     const initStart = performance.now();
@@ -1437,6 +1481,7 @@ export async function setupIndexingListener(): Promise<UnlistenFn> {
       }
       hasIndexed = true;
       console.error('Indexing error:', payload);
+      useAppStore.getState().notify('error', 'Falha na indexação do vault. Busca e grafo podem ficar incompletos.');
       useAppStore.setState({ isIndexing: false, indexingProgressText: null });
       checkAndPrintConsolidatedMetrics();
     }
