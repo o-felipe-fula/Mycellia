@@ -1419,6 +1419,14 @@ export async function setupIndexingListener(): Promise<UnlistenFn> {
       if (activeTab) {
         await useAppStore.getState().loadBacklinks(activeTab);
       }
+      // BUG-01: o GraphView chama loadGraphData() na montagem, ANTES da indexação de fundo
+      // terminar, então o grafo vem vazio e fica preso em "Aguardando dados de rede do grafo...".
+      // Quando a indexação completa, re-carrega o grafo SE ele ainda estiver vazio (não reprocessa
+      // se já houver dados — evita reload à toa em indexações incrementais).
+      const gd = useAppStore.getState().graphData;
+      if (!gd || gd.nodes.length === 0) {
+        await useAppStore.getState().loadGraphData();
+      }
       checkAndPrintConsolidatedMetrics();
     } else if (payload.startsWith('progress:')) {
       const progressText = payload.substring('progress:'.length);
