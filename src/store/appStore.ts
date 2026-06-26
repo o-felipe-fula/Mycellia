@@ -208,6 +208,7 @@ async function saveConfigHelper(state: {
     await invoke('save_config', { config });
   } catch (e) {
     console.error('Failed to save config:', e);
+    useAppStore.getState().notify('warning', 'Falha ao salvar configurações.');
   }
 }
 
@@ -498,12 +499,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ isWatching: true });
     } catch (e) {
       console.error('Failed to start watching vault:', e);
+      get().notify('warning', 'Monitoramento de arquivos não iniciou; mudanças externas podem não aparecer.');
       set({ isWatching: false });
     }
 
     // Dispara indexação incremental em background (não bloqueia a UI)
     invoke('start_indexing_command', { vaultPath: path }).catch((err) => {
       console.error('Failed to start background indexing:', err);
+      get().notify('error', 'Falha ao iniciar a indexação do vault.');
     });
     await get().refreshExistingNotes();
   },
@@ -687,7 +690,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       await invoke('open_in_default_app', { path });
     } catch (err) {
       console.error('Failed to open file in default app:', err);
-      alert(`Falha ao abrir o arquivo no aplicativo padrão: ${err}`);
+      get().notify('error', `Falha ao abrir o arquivo no aplicativo padrão: ${err}`);
     }
   },
 
@@ -1056,6 +1059,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ existingNotes: existingMap });
     } catch (e) {
       console.error('Failed to refresh existing notes:', e);
+      get().notify('warning', 'Falha ao atualizar a lista de notas.');
     }
   },
 
@@ -1066,6 +1070,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ activeNoteBacklinks: backlinks, isBacklinksLoading: false });
     } catch (e) {
       console.error('Failed to load backlinks:', e);
+      get().notify('warning', 'Falha ao carregar os backlinks.');
       set({ activeNoteBacklinks: [], isBacklinksLoading: false });
     }
   },
@@ -1107,6 +1112,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           }
         } catch (e) {
           console.error('Failed to check link collisions:', e);
+          get().notify('warning', 'Falha ao verificar colisões de wiki-links.');
         }
       }
       await get().openTab(targetPath);
@@ -1342,6 +1348,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     } catch (e) {
       console.error('Failed to load graph data:', e);
+      get().notify('error', 'Falha ao carregar o grafo.');
       graphTime = 0;
       hasGraphLoaded = true;
       checkAndPrintConsolidatedMetrics();
@@ -1361,6 +1368,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ graphPositions: positions });
     } catch (e) {
       console.error('Failed to save graph positions:', e);
+      get().notify('warning', 'Falha ao salvar as posições do grafo.');
     }
   },
 
@@ -1408,6 +1416,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     } catch (e) {
       console.error('Failed to search notes:', e);
+      get().notify('error', 'Falha na busca.');
       if (get().graphSearchQuery === query) {
         set({
           isSearching: false,
