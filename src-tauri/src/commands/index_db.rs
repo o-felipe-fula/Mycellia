@@ -243,7 +243,6 @@ pub fn resolve_target_path(target_name: &str, all_paths: &[String], vault_path: 
 }
 
 // Indexa o vault de forma incremental
-#[allow(clippy::unwrap_used, clippy::expect_used)] // TODO F1: converter para Result
 fn index_vault(app: &AppHandle, vault_path: &str) -> Result<(), String> {
     let state = app.state::<DbState>();
     let mut conn_lock = state.conn.lock().map_err(|e| format!("Erro no lock de conexão: {}", e))?;
@@ -253,7 +252,7 @@ fn index_vault(app: &AppHandle, vault_path: &str) -> Result<(), String> {
         let conn = init_db_connection(&db_path).map_err(|e| format!("Falha ao inicializar o banco: {}", e))?;
         *conn_lock = Some(conn);
     }
-    let conn = conn_lock.as_mut().unwrap();
+    let conn = conn_lock.as_mut().ok_or_else(|| "Conexão com o banco perdida".to_string())?;
 
     // 1. Mapeia dados atuais do SQLite: path -> last_modified
     let db_notes_map: std::collections::HashMap<String, i64> = {
@@ -442,7 +441,6 @@ pub fn rebuild_index(app: AppHandle, vault_path: String) -> Result<(), String> {
 }
 
 // Comando Tauri: Busca Full-Text no FTS5
-#[allow(clippy::unwrap_used, clippy::expect_used)] // TODO F1: converter para Result
 #[tauri::command]
 pub fn search_notes<R: tauri::Runtime>(app: tauri::AppHandle<R>, query: String) -> Result<Vec<SearchResult>, String> {
     let state = app.state::<DbState>();
@@ -456,7 +454,7 @@ pub fn search_notes<R: tauri::Runtime>(app: tauri::AppHandle<R>, query: String) 
     if conn_lock.is_none() {
         return Ok(Vec::new());
     }
-    let conn = conn_lock.as_mut().unwrap();
+    let conn = conn_lock.as_mut().ok_or_else(|| "Conexão com o banco perdida".to_string())?;
     
     let mut stmt = conn.prepare(
         "SELECT path, title, snippet(notes_fts, -1, '<b>', '</b>', '...', 16) 
@@ -482,7 +480,6 @@ pub fn search_notes<R: tauri::Runtime>(app: tauri::AppHandle<R>, query: String) 
 }
 
 // Comando Tauri: Retorna todos os caminhos que combinam com a busca FTS5 (sem limite e sem snippets)
-#[allow(clippy::unwrap_used, clippy::expect_used)] // TODO F1: converter para Result
 #[tauri::command]
 pub fn get_matching_paths<R: tauri::Runtime>(app: tauri::AppHandle<R>, query: String) -> Result<Vec<String>, String> {
     let state = app.state::<DbState>();
@@ -495,7 +492,7 @@ pub fn get_matching_paths<R: tauri::Runtime>(app: tauri::AppHandle<R>, query: St
     if conn_lock.is_none() {
         return Ok(Vec::new());
     }
-    let conn = conn_lock.as_mut().unwrap();
+    let conn = conn_lock.as_mut().ok_or_else(|| "Conexão com o banco perdida".to_string())?;
     
     let mut stmt = conn.prepare(
         "SELECT path FROM notes_fts WHERE notes_fts MATCH ?"
@@ -529,7 +526,6 @@ pub fn start_indexing_command(app: AppHandle, vault_path: String) -> Result<(), 
 }
 
 // Comando Tauri: Retorna a lista de todas as notas indexadas com seus basenames (title no DB)
-#[allow(clippy::unwrap_used, clippy::expect_used)] // TODO F1: converter para Result
 #[tauri::command]
 pub fn get_all_notes(app: AppHandle) -> Result<Vec<NoteInfo>, String> {
     let state = app.state::<DbState>();
@@ -540,7 +536,7 @@ pub fn get_all_notes(app: AppHandle) -> Result<Vec<NoteInfo>, String> {
     if conn_lock.is_none() {
         return Ok(Vec::new());
     }
-    let conn = conn_lock.as_mut().unwrap();
+    let conn = conn_lock.as_mut().ok_or_else(|| "Conexão com o banco perdida".to_string())?;
     let mut stmt = conn.prepare("SELECT path, title FROM notes").map_err(|e| e.to_string())?;
     let rows = stmt.query_map([], |row| {
         Ok(NoteInfo {
@@ -556,7 +552,6 @@ pub fn get_all_notes(app: AppHandle) -> Result<Vec<NoteInfo>, String> {
 }
 
 // Comando Tauri: Busca backlinks para a nota ativa de forma precisa (usando target_path)
-#[allow(clippy::unwrap_used, clippy::expect_used)] // TODO F1: converter para Result
 #[tauri::command]
 pub fn get_backlinks(app: AppHandle, target_path: String) -> Result<Vec<Backlink>, String> {
     let state = app.state::<DbState>();
@@ -568,7 +563,7 @@ pub fn get_backlinks(app: AppHandle, target_path: String) -> Result<Vec<Backlink
     if conn_lock.is_none() {
         return Ok(Vec::new());
     }
-    let conn = conn_lock.as_mut().unwrap();
+    let conn = conn_lock.as_mut().ok_or_else(|| "Conexão com o banco perdida".to_string())?;
 
     // 1. Encontra o título da nota de destino
     let target_title: String = match conn.query_row(
@@ -795,7 +790,6 @@ pub struct GraphData {
     pub links: Vec<GraphLink>,
 }
 
-#[allow(clippy::unwrap_used, clippy::expect_used)] // TODO F1: converter para Result
 #[tauri::command]
 pub fn get_graph_data<R: tauri::Runtime>(app: tauri::AppHandle<R>) -> Result<GraphData, String> {
     let state = app.state::<DbState>();
@@ -807,7 +801,7 @@ pub fn get_graph_data<R: tauri::Runtime>(app: tauri::AppHandle<R>) -> Result<Gra
     if conn_lock.is_none() {
         return Err("Database connection not initialized".to_string());
     }
-    let conn = conn_lock.as_mut().unwrap();
+    let conn = conn_lock.as_mut().ok_or_else(|| "Conexão com o banco perdida".to_string())?;
 
     let mut stmt = conn.prepare("SELECT path, title FROM notes").map_err(|e| e.to_string())?;
     let note_rows = stmt.query_map([], |row| {

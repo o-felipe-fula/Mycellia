@@ -345,7 +345,7 @@ pub fn move_item<R: tauri::Runtime>(app: tauri::AppHandle<R>, path: String, new_
     if conn_lock.is_none() {
         return Err("Banco de dados não inicializado".to_string());
     }
-    let conn = conn_lock.as_mut().unwrap();
+    let conn = conn_lock.as_mut().ok_or_else(|| "Conexão com o banco perdida".to_string())?;
     let tx = conn.transaction().map_err(|e| e.to_string())?;
 
     let source_path = Path::new(&canon_src);
@@ -623,7 +623,7 @@ fn handle_watcher_events<R: tauri::Runtime>(app: &tauri::AppHandle<R>, vault_pat
     if conn_lock.is_none() {
         return Err("Database connection not initialized".to_string());
     }
-    let conn = conn_lock.as_mut().unwrap();
+    let conn = conn_lock.as_mut().ok_or_else(|| "Conexão com o banco perdida".to_string())?;
     
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     let watcher_state = app.state::<WatcherState>();
