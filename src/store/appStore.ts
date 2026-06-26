@@ -278,7 +278,15 @@ function handleSaveFailure(path: string, content: string, e: unknown) {
   }
   saveErrorNotifId = useAppStore.getState().notify('error', msg, {
     persistent: true,
-    action: { label: 'Tentar de novo', run: () => useAppStore.getState().flushPendingSave() },
+    // Captura {path, content} da falha no closure: o retry salva a nota que FALHOU,
+    // mesmo que o usuário tenha trocado de nota (pendingSave global pode ter mudado).
+    action: {
+      label: 'Tentar de novo',
+      run: () => {
+        pendingSave = { path, content };
+        useAppStore.getState().flushPendingSave();
+      },
+    },
   });
 }
 

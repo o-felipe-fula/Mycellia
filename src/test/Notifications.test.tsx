@@ -104,4 +104,29 @@ describe('F1 — Sistema de notificações (toasts)', () => {
     // O TEXTO DO USUÁRIO NUNCA SE PERDE.
     expect(useAppStore.getState().activeNoteContent).toBe('texto novo do usuário');
   });
+
+  it('6. "Tentar de novo" salva a nota que FALHOU, mesmo após editar outra', async () => {
+    // Save da nota A falha → toast de A.
+    useAppStore.setState({ activeTab: 'C:\\Vaults\\Mycellia\\A.md', activeNoteRawFrontmatter: '' });
+    await useAppStore.getState().updateActiveNoteContent('conteudo A');
+    vi.mocked(invoke).mockRejectedValueOnce(new Error('falha A'));
+    await useAppStore.getState().flushPendingSave();
+
+    const notif = useAppStore.getState().notifications.find((n) => n.persistent && n.action);
+    expect(notif).toBeTruthy();
+
+    // Usuário troca p/ B e edita B (sobrescreve o pendingSave global).
+    useAppStore.setState({ activeTab: 'C:\\Vaults\\Mycellia\\B.md', activeNoteRawFrontmatter: '' });
+    await useAppStore.getState().updateActiveNoteContent('conteudo B');
+
+    // Clica "Tentar de novo" no toast da A → deve salvar A (a que falhou), não B.
+    vi.mocked(invoke).mockResolvedValue(undefined as never);
+    notif?.action?.run();
+    await new Promise((r) => setTimeout(r, 0));
+
+    const writeCalls = vi.mocked(invoke).mock.calls.filter((c) => c[0] === 'write_file');
+    const lastWrite = writeCalls[writeCalls.length - 1];
+    expect(lastWrite?.[1]).toMatchObject({ path: 'C:\\Vaults\\Mycellia\\A.md' });
+    expect((lastWrite?.[1] as { content: string }).content).toContain('conteudo A');
+  });
 });
