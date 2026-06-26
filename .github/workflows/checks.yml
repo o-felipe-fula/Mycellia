@@ -7,6 +7,7 @@ on:
       - 'claude/**'
 
 jobs:
+  # Checks independentes de SO (rodam 1x no ubuntu): lint, build estrito e cobertura informativa.
   quality:
     runs-on: ubuntu-latest
     steps:
@@ -21,7 +22,7 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy, llvm-tools-preview
+          components: llvm-tools-preview
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
@@ -30,9 +31,6 @@ jobs:
         run: npm run lint
       - name: Build estrito (tsc + vite)
         run: npm run build
-      - name: Clippy (Rust, -D warnings)
-        working-directory: src-tauri
-        run: cargo clippy -- -D warnings
       - name: Cobertura front (informativa)
         continue-on-error: true
         run: npm run test:coverage
@@ -46,11 +44,14 @@ jobs:
         working-directory: src-tauri
         run: cargo llvm-cov --summary-only
 
+  # Testes + clippy nos TRÊS SOs (o app precisa rodar nos 3 → o gate precisa ser verde nos 3).
+  # Rodar clippy por-SO faz o tripwire de unwrap/expect pegar tambem o codigo #[cfg(...)] especifico
+  # de cada plataforma (ex.: watcher FSEvents do macOS), que um unico SO nao compila/lintava.
   tests:
     strategy:
       fail-fast: false
       matrix:
-        platform: [ubuntu-latest, windows-latest]
+        platform: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
@@ -64,6 +65,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
@@ -73,3 +76,6 @@ jobs:
       - name: Testes Rust (cargo test)
         working-directory: src-tauri
         run: cargo test
+      - name: Clippy (Rust, -D warnings)
+        working-directory: src-tauri
+        run: cargo clippy -- -D warnings
