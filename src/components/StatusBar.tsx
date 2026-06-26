@@ -1,9 +1,9 @@
 import { useMemo, useState, useEffect } from 'react';
 import { useAppStore, FileNode } from '../store/appStore';
-import { Folder, Eye, EyeOff, Loader2 } from 'lucide-react';
+import { Folder, Eye, EyeOff, Loader2, RefreshCw } from 'lucide-react';
 
 export default function StatusBar() {
-  const { currentVault, fileTree, isIndexing, indexingProgressText, isWatching, activeNoteContent } = useAppStore();
+  const { currentVault, fileTree, isIndexing, indexingProgressText, isWatching, activeNoteContent, rebuildIndex } = useAppStore();
 
   // Contagem de arquivos: memoizado sobre fileTree para evitar varredura a cada render
   const fileCount = useMemo(() => {
@@ -73,10 +73,15 @@ export default function StatusBar() {
             </span>
           </>
         ) : (
-          <>
+          <button
+            onClick={() => rebuildIndex()}
+            title="Reconstruir índice — re-lê todas as notas (necessário para a busca enxergar o frontmatter de notas já existentes)"
+            className="group flex items-center gap-1.5 rounded px-1.5 py-0.5 hover:bg-[var(--substrate-raised)] cursor-pointer transition-colors"
+          >
             <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] flex-shrink-0" />
-            <span className="text-[var(--text-muted)]">Índice atualizado</span>
-          </>
+            <span className="text-[var(--text-muted)] group-hover:text-[var(--text-secondary)]">Índice atualizado</span>
+            <RefreshCw className="w-3 h-3 text-[var(--text-muted)] opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+          </button>
         )}
       </div>
 

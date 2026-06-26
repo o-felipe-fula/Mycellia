@@ -137,6 +137,7 @@ interface AppState {
   notifications: AppNotification[];
   notify: (type: NotificationType, message: string, opts?: NotifyOptions) => string;
   dismissNotification: (id: string) => void;
+  rebuildIndex: () => Promise<void>;
 
   // Ações de Inicialização e Configuração
   initApp: () => Promise<void>;
@@ -385,6 +386,18 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   dismissNotification: (id) =>
     set((s) => ({ notifications: s.notifications.filter((n) => n.id !== id) })),
+  rebuildIndex: async () => {
+    const vault = get().currentVault;
+    if (!vault) return;
+    try {
+      // rebuild_index apaga o DB e re-dispara a indexação completa (com o fix do F2), emitindo
+      // eventos 'indexing-status' que a StatusBar já reflete ("Indexando…" → "Índice atualizado").
+      await invoke('rebuild_index', { vaultPath: vault });
+      get().notify('info', 'Reconstruindo o índice… a busca passará a enxergar o frontmatter.');
+    } catch (e) {
+      get().notify('error', `Falha ao reconstruir o índice: ${e}`);
+    }
+  },
 
   initApp: async () => {
     const initStart = performance.now();
