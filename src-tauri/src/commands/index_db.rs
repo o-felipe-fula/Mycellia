@@ -367,19 +367,24 @@ fn index_vault(app: &AppHandle, vault_path: &str) -> Result<(), String> {
             ).map_err(|e| e.to_string())?;
         }
 
-        // Insere propriedades
-        for (key, val) in meta.properties {
+        // Insere propriedades (e acumula chave+valor para o índice FTS — F2: busca enxerga o frontmatter)
+        let mut props_fts = String::new();
+        for (key, val) in &meta.properties {
             tx.execute(
                 "INSERT OR REPLACE INTO properties (note_path, key, value) VALUES (?, ?, ?)",
                 rusqlite::params![path_str, key, val],
             ).map_err(|e| e.to_string())?;
+            props_fts.push_str(key);
+            props_fts.push(' ');
+            props_fts.push_str(val);
+            props_fts.push(' ');
         }
 
-        // Insere no FTS5
+        // Insere no FTS5 (coluna properties agora indexável — F2)
         let tags_joined = meta.tags.join(" ");
         tx.execute(
             "INSERT INTO notes_fts (path, title, content, tags, properties) VALUES (?, ?, ?, ?, ?)",
-            rusqlite::params![path_str, meta.title, meta.clean_text, tags_joined, ""],
+            rusqlite::params![path_str, meta.title, meta.clean_text, tags_joined, props_fts.trim()],
         ).map_err(|e| e.to_string())?;
     }
 
@@ -749,17 +754,23 @@ pub fn index_single_file_in_tx(
         ).map_err(|e| e.to_string())?;
     }
 
-    for (key, val) in meta.properties {
+    // F2: acumula chave+valor das propriedades para o índice FTS (busca enxerga o frontmatter)
+    let mut props_fts = String::new();
+    for (key, val) in &meta.properties {
         tx.execute(
             "INSERT OR REPLACE INTO properties (note_path, key, value) VALUES (?, ?, ?)",
             rusqlite::params![path_str, key, val],
         ).map_err(|e| e.to_string())?;
+        props_fts.push_str(key);
+        props_fts.push(' ');
+        props_fts.push_str(val);
+        props_fts.push(' ');
     }
 
     let tags_joined = meta.tags.join(" ");
     tx.execute(
         "INSERT INTO notes_fts (path, title, content, tags, properties) VALUES (?, ?, ?, ?, ?)",
-        rusqlite::params![path_str, meta.title, meta.clean_text, tags_joined, ""],
+        rusqlite::params![path_str, meta.title, meta.clean_text, tags_joined, props_fts.trim()],
     ).map_err(|e| e.to_string())?;
 
     Ok(())
