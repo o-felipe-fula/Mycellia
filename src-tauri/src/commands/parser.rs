@@ -85,8 +85,8 @@ fn extract_tags_from_raw(body: &str, exclude_ranges: &[(usize, usize)], tags_set
     while i < bytes.len() {
         if bytes[i] == b'#' {
             let is_boundary = i == 0 || bytes[i - 1].is_ascii_whitespace();
-            if is_boundary && !is_in_exclude(i) {
-                if i + 1 < bytes.len() {
+            if is_boundary && !is_in_exclude(i)
+                && i + 1 < bytes.len() {
                     let first_char = bytes[i + 1];
                     let is_start_char = first_char.is_ascii_alphabetic() || first_char == b'_';
                     if is_start_char {
@@ -111,7 +111,6 @@ fn extract_tags_from_raw(body: &str, exclude_ranges: &[(usize, usize)], tags_set
                         continue;
                     }
                 }
-            }
         }
         i += 1;
     }
@@ -168,7 +167,7 @@ fn extract_wiki_links_from_raw(body: &str, links_set: &mut HashSet<String>) {
                 // Verifica que não estamos dentro de um fenced code block
                 let in_fenced = code_regions.iter().any(|(s, e)| backtick_start >= *s && backtick_start < *e);
                 if !in_fenced {
-                    let closing_pattern: String = std::iter::repeat('`').take(backtick_count).collect();
+                    let closing_pattern: String = std::iter::repeat_n('`', backtick_count).collect();
                     if let Some(close_offset) = body[i..].find(&closing_pattern) {
                         let close_end = i + close_offset + backtick_count;
                         inline_code_regions.push((backtick_start, close_end));
@@ -247,8 +246,8 @@ pub fn parse_markdown(content: &str, file_name: &str) -> ParsedNoteMetadata {
                 
                 // Calcula onde começa o corpo do markdown
                 let mut char_count = 0;
-                for i in 0..=idx {
-                    char_count += lines[i].len() + 1; // +1 para a quebra de linha
+                for line in lines.iter().take(idx + 1) {
+                    char_count += line.len() + 1; // +1 para a quebra de linha
                 }
                 if char_count < content.len() {
                     markdown_body = &content[char_count..];
@@ -257,17 +256,15 @@ pub fn parse_markdown(content: &str, file_name: &str) -> ParsedNoteMetadata {
                 }
 
                 if let Ok(docs) = YamlLoader::load_from_str(&yaml_str) {
-                    if let Some(doc) = docs.first() {
-                        if let Yaml::Hash(hash) = doc {
-                            for (key_node, val_node) in hash {
-                                if let Some(key_str) = key_node.as_str() {
-                                    let json_val = yaml_to_json(val_node);
-                                    let json_str = serde_json::to_string(&json_val).unwrap_or_else(|_| "null".to_string());
-                                    properties.push((key_str.to_string(), json_str));
+                    if let Some(Yaml::Hash(hash)) = docs.first() {
+                        for (key_node, val_node) in hash {
+                            if let Some(key_str) = key_node.as_str() {
+                                let json_val = yaml_to_json(val_node);
+                                let json_str = serde_json::to_string(&json_val).unwrap_or_else(|_| "null".to_string());
+                                properties.push((key_str.to_string(), json_str));
 
-                                    if key_str == "tags" || key_str == "tag" {
-                                        extract_tags_from_yaml(val_node, &mut tags_set);
-                                    }
+                                if key_str == "tags" || key_str == "tag" {
+                                    extract_tags_from_yaml(val_node, &mut tags_set);
                                 }
                             }
                         }
@@ -324,12 +321,11 @@ pub fn parse_markdown(content: &str, file_name: &str) -> ParsedNoteMetadata {
             Event::Code(_) => {
                 // Código inline também é ignorado para o FTS5 clean text
             }
-            Event::Text(text) => {
-                if !in_code_block {
+            Event::Text(text)
+                if !in_code_block => {
                     clean_text.push_str(&text);
                     clean_text.push(' ');
                 }
-            }
             _ => {}
         }
     }

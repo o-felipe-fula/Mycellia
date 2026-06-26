@@ -147,14 +147,12 @@ describe('Graph View Store Actions', () => {
     const nodeB = partialState.graphData?.nodes.find(n => n.id === 'phantom:Nota B');
     expect(nodeB?.fx).toBeUndefined(); // Needs simulation
 
-    // Wait for the MockWorker tick and completion timers
-    await new Promise(resolve => setTimeout(resolve, 100));
-
-    // Verify coordinates settle and freeze
-    const finalState = useAppStore.getState();
-    const finalNodeB = finalState.graphData?.nodes.find(n => n.id === 'phantom:Nota B');
-    expect(finalNodeB?.x).toBe(45);
-    expect(finalNodeB?.fx).toBe(45); // Locked in place post-simulation
+    // Aguarda de forma determinística o END_SIMULATION assentar (sem timer arbitrário)
+    await vi.waitFor(() => {
+      const finalNodeB = useAppStore.getState().graphData?.nodes.find(n => n.id === 'phantom:Nota B');
+      expect(finalNodeB?.x).toBe(45);
+      expect(finalNodeB?.fx).toBe(45); // Locked in place post-simulation
+    });
 
     // Confirm that positions were successfully saved to AppData config
     expect(invoke).toHaveBeenCalledWith('save_graph_positions', expect.objectContaining({

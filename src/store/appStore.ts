@@ -5,6 +5,31 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import YAML from 'yaml';
 import { parseRawNote, serializeRawNote } from '../utils/markdown';
 
+// --- Sistema de notificações (F1.2) -------------------------------------------------
+// Toasts transitórios (somem sozinhos) para falhas que hoje eram mudas (só console.error).
+// O canal "grave/persistente" (falha ao salvar, etc.) continua na faixa `globalError`.
+export type NotificationType = 'error' | 'warning' | 'success' | 'info';
+
+export interface NotificationAction {
+  label: string;
+  run: () => void;
+}
+
+export interface AppNotification {
+  id: string;
+  type: NotificationType;
+  message: string;
+  /** Persistente fica até o usuário fechar; transitório some após `ttlMs`. */
+  persistent: boolean;
+  action?: NotificationAction;
+}
+
+export interface NotifyOptions {
+  persistent?: boolean;
+  ttlMs?: number;
+  action?: NotificationAction;
+}
+
 export interface FileNode {
   name: string;
   path: string;
@@ -109,6 +134,10 @@ interface AppState {
   isNoteDirty: boolean;
   globalError: string | null;
   setGlobalError: (error: string | null) => void;
+  notifications: AppNotification[];
+  notify: (type: NotificationType, message: string, opts?: NotifyOptions) => string;
+  dismissNotification: (id: string) => void;
+  rebuildIndex: () => Promise<void>;
 
   // Ações de Inicialização e Configuração
   initApp: () => Promise<void>;
@@ -180,6 +209,7 @@ async function saveConfigHelper(state: {
     await invoke('save_config', { config });
   } catch (e) {
     console.error('Failed to save config:', e);
+    useAppStore.getState().notify('warning', 'Falha ao salvar configurações.');
   }
 }
 
@@ -228,6 +258,39 @@ const checkAndPrintConsolidatedMetrics = () => {
 };
 
 
+// Falha de save (F1.2): notificação persistente, com "Tentar de novo", deduplicada (uma por vez),
+// preservando o texto (restaura pendingSave). O fluxo de escrita atômica em si NÃO muda.
+let saveErrorNotifId: string | null = null;
+
+function clearSaveError() {
+  if (saveErrorNotifId) {
+    useAppStore.getState().dismissNotification(saveErrorNotifId);
+    saveErrorNotifId = null;
+  }
+}
+
+function handleSaveFailure(path: string, content: string, e: unknown) {
+  const msg = `Falha ao salvar a nota: ${e}`;
+  console.error(msg, e);
+  // Restaura o pendingSave para NÃO perder o texto e permitir o retry (botão / próximo autosave).
+  pendingSave = { path, content };
+  if (saveErrorNotifId) {
+    useAppStore.getState().dismissNotification(saveErrorNotifId);
+  }
+  saveErrorNotifId = useAppStore.getState().notify('error', msg, {
+    persistent: true,
+    // Captura {path, content} da falha no closure: o retry salva a nota que FALHOU,
+    // mesmo que o usuário tenha trocado de nota (pendingSave global pode ter mudado).
+    action: {
+      label: 'Tentar de novo',
+      run: () => {
+        pendingSave = { path, content };
+        useAppStore.getState().flushPendingSave();
+      },
+    },
+  });
+}
+
 const scheduleSaveHelper = () => {
   if (saveTimeout) {
     clearTimeout(saveTimeout);
@@ -242,10 +305,9 @@ const scheduleSaveHelper = () => {
       if (useAppStore.getState().activeTab === path) {
         useAppStore.setState({ activeNoteBaseSerialized: content });
       }
+      clearSaveError();
     } catch (e) {
-      const msg = `Falha ao salvar nota (agendado): ${e}`;
-      console.error(msg, e);
-      useAppStore.getState().setGlobalError(msg);
+      handleSaveFailure(path, content, e);
     }
   }, 500);
 };
@@ -308,6 +370,34 @@ export const useAppStore = create<AppState>((set, get) => ({
   isNoteDirty: false,
   globalError: null,
   setGlobalError: (error) => set({ globalError: error }),
+  notifications: [],
+  notify: (type, message, opts) => {
+    const id = `n_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    const persistent = opts?.persistent ?? false;
+    const notification: AppNotification = { id, type, message, persistent, action: opts?.action };
+    const logFn = type === 'error' ? console.error : type === 'warning' ? console.warn : console.log;
+    logFn(`[notify:${type}] ${message}`);
+    set((s) => ({ notifications: [...s.notifications, notification] }));
+    if (!persistent) {
+      const ttl = opts?.ttlMs ?? 5000;
+      setTimeout(() => get().dismissNotification(id), ttl);
+    }
+    return id;
+  },
+  dismissNotification: (id) =>
+    set((s) => ({ notifications: s.notifications.filter((n) => n.id !== id) })),
+  rebuildIndex: async () => {
+    const vault = get().currentVault;
+    if (!vault) return;
+    try {
+      // rebuild_index apaga o DB e re-dispara a indexação completa (com o fix do F2), emitindo
+      // eventos 'indexing-status' que a StatusBar já reflete ("Indexando…" → "Índice atualizado").
+      await invoke('rebuild_index', { vaultPath: vault });
+      get().notify('info', 'Reconstruindo o índice… a busca passará a enxergar o frontmatter.');
+    } catch (e) {
+      get().notify('error', `Falha ao reconstruir o índice: ${e}`);
+    }
+  },
 
   initApp: async () => {
     const initStart = performance.now();
@@ -352,6 +442,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     } catch (e) {
       console.error('Failed to initialize app config:', e);
+      get().setGlobalError(`Falha ao inicializar o app: ${e}`);
     }
   },
 
@@ -415,7 +506,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     hasIndexed = false;
     hasGraphLoaded = false;
     treeLoadStartTime = performance.now();
-    const tree = await invoke<FileNode>('load_vault_tree', { vaultPath: path });
+    let tree: FileNode;
+    try {
+      tree = await invoke<FileNode>('load_vault_tree', { vaultPath: path });
+    } catch (e) {
+      console.error('Failed to load vault tree:', e);
+      get().setGlobalError(`Falha ao carregar o vault: ${e}`);
+      return;
+    }
     treeLoadTime = performance.now() - treeLoadStartTime;
     hasTreeLoaded = true;
 
@@ -446,12 +544,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ isWatching: true });
     } catch (e) {
       console.error('Failed to start watching vault:', e);
+      get().notify('warning', 'Monitoramento de arquivos não iniciou; mudanças externas podem não aparecer.');
       set({ isWatching: false });
     }
 
     // Dispara indexação incremental em background (não bloqueia a UI)
     invoke('start_indexing_command', { vaultPath: path }).catch((err) => {
       console.error('Failed to start background indexing:', err);
+      get().notify('error', 'Falha ao iniciar a indexação do vault.');
     });
     await get().refreshExistingNotes();
   },
@@ -635,7 +735,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       await invoke('open_in_default_app', { path });
     } catch (err) {
       console.error('Failed to open file in default app:', err);
-      alert(`Falha ao abrir o arquivo no aplicativo padrão: ${err}`);
+      get().notify('error', `Falha ao abrir o arquivo no aplicativo padrão: ${err}`);
     }
   },
 
@@ -787,10 +887,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (get().activeTab === path) {
         set({ activeNoteBaseSerialized: content });
       }
+      clearSaveError();
     } catch (e) {
-      const msg = `Falha ao salvar nota (síncrono): ${e}`;
-      console.error(msg, e);
-      get().setGlobalError(msg);
+      handleSaveFailure(path, content, e);
     }
   },
 
@@ -1004,6 +1103,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ existingNotes: existingMap });
     } catch (e) {
       console.error('Failed to refresh existing notes:', e);
+      get().notify('warning', 'Falha ao atualizar a lista de notas.');
     }
   },
 
@@ -1014,6 +1114,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ activeNoteBacklinks: backlinks, isBacklinksLoading: false });
     } catch (e) {
       console.error('Failed to load backlinks:', e);
+      get().notify('warning', 'Falha ao carregar os backlinks.');
       set({ activeNoteBacklinks: [], isBacklinksLoading: false });
     }
   },
@@ -1055,6 +1156,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           }
         } catch (e) {
           console.error('Failed to check link collisions:', e);
+          get().notify('warning', 'Falha ao verificar colisões de wiki-links.');
         }
       }
       await get().openTab(targetPath);
@@ -1290,6 +1392,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     } catch (e) {
       console.error('Failed to load graph data:', e);
+      get().notify('error', 'Falha ao carregar o grafo.');
       graphTime = 0;
       hasGraphLoaded = true;
       checkAndPrintConsolidatedMetrics();
@@ -1309,6 +1412,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ graphPositions: positions });
     } catch (e) {
       console.error('Failed to save graph positions:', e);
+      get().notify('warning', 'Falha ao salvar as posições do grafo.');
     }
   },
 
@@ -1356,6 +1460,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     } catch (e) {
       console.error('Failed to search notes:', e);
+      get().notify('error', 'Falha na busca.');
       if (get().graphSearchQuery === query) {
         set({
           isSearching: false,
@@ -1411,6 +1516,14 @@ export async function setupIndexingListener(): Promise<UnlistenFn> {
       if (activeTab) {
         await useAppStore.getState().loadBacklinks(activeTab);
       }
+      // BUG-01: o GraphView chama loadGraphData() na montagem, ANTES da indexação de fundo
+      // terminar, então o grafo vem vazio e fica preso em "Aguardando dados de rede do grafo...".
+      // Quando a indexação completa, re-carrega o grafo SE ele ainda estiver vazio (não reprocessa
+      // se já houver dados — evita reload à toa em indexações incrementais).
+      const gd = useAppStore.getState().graphData;
+      if (!gd || gd.nodes.length === 0) {
+        await useAppStore.getState().loadGraphData();
+      }
       checkAndPrintConsolidatedMetrics();
     } else if (payload.startsWith('progress:')) {
       const progressText = payload.substring('progress:'.length);
@@ -1421,6 +1534,7 @@ export async function setupIndexingListener(): Promise<UnlistenFn> {
       }
       hasIndexed = true;
       console.error('Indexing error:', payload);
+      useAppStore.getState().notify('error', 'Falha na indexação do vault. Busca e grafo podem ficar incompletos.');
       useAppStore.setState({ isIndexing: false, indexingProgressText: null });
       checkAndPrintConsolidatedMetrics();
     }

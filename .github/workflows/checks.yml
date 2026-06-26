@@ -1,0 +1,81 @@
+name: 'Checks'
+
+on:
+  pull_request:
+  push:
+    branches:
+      - 'claude/**'
+
+jobs:
+  # Checks independentes de SO (rodam 1x no ubuntu): lint, build estrito e cobertura informativa.
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+      - name: System deps (Tauri/Linux)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      - name: Lint (front)
+        run: npm run lint
+      - name: Build estrito (tsc + vite)
+        run: npm run build
+      - name: Cobertura front (informativa)
+        continue-on-error: true
+        run: npm run test:coverage
+      - name: Instalar cargo-llvm-cov
+        continue-on-error: true
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+      - name: Cobertura Rust (informativa)
+        continue-on-error: true
+        working-directory: src-tauri
+        run: cargo llvm-cov --summary-only
+
+  # Testes + clippy nos TRÊS SOs (o app precisa rodar nos 3 → o gate precisa ser verde nos 3).
+  # Rodar clippy por-SO faz o tripwire de unwrap/expect pegar tambem o codigo #[cfg(...)] especifico
+  # de cada plataforma (ex.: watcher FSEvents do macOS), que um unico SO nao compila/lintava.
+  tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+      - name: System deps (Tauri/Linux)
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      - name: Testes front (vitest)
+        run: npx vitest run
+      - name: Testes Rust (cargo test)
+        working-directory: src-tauri
+        run: cargo test
+      - name: Clippy (Rust, -D warnings)
+        working-directory: src-tauri
+        run: cargo clippy -- -D warnings

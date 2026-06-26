@@ -52,3 +52,9 @@ Specs/
 
 # Artefatos de desenvolvimento e config de agente
 .antigravityrules
+
+# Memória/guia operacional do Claude Code (local, não publicar)
+CLAUDE.md
+
+# Cobertura de testes
+coverage/

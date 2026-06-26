@@ -833,6 +833,42 @@ Link vazio (deve ser ignorado): [[]].
     }
 
     #[test]
+    fn test_fts5_searches_frontmatter_properties() {
+        // F2: a coluna `properties` do FTS deve conter chave+valor do frontmatter, de modo que
+        // buscar um VALOR (ex.: "Felipe") ou uma CHAVE (ex.: "author") ache a nota — mesmo que o
+        // corpo NÃO contenha essas palavras.
+        let mut conn = create_test_db();
+        let temp_dir = std::env::temp_dir().join("mycellia_test_fts_props");
+        let _ = fs::remove_dir_all(&temp_dir);
+        let _ = fs::create_dir_all(&temp_dir);
+
+        let note_path = temp_dir.join("Nota Frontmatter.md");
+        fs::write(
+            &note_path,
+            "---\ntitle: Nota Frontmatter\nauthor: Felipe\nstatus: publicado\n---\nCorpo sem o nome do dono.",
+        )
+        .unwrap();
+
+        let tx = conn.transaction().unwrap();
+        crate::commands::index_db::index_single_file_in_tx(&tx, &note_path, 100).unwrap();
+        tx.commit().unwrap();
+
+        // Busca pelo VALOR do frontmatter — o corpo não tem "Felipe", então só acha via properties.
+        let hits_value: i64 = conn
+            .query_row("SELECT count(*) FROM notes_fts WHERE notes_fts MATCH 'Felipe'", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(hits_value, 1, "Busca por valor de frontmatter (Felipe) deveria achar a nota");
+
+        // Busca pela CHAVE do frontmatter.
+        let hits_key: i64 = conn
+            .query_row("SELECT count(*) FROM notes_fts WHERE notes_fts MATCH 'author'", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(hits_key, 1, "Busca pela chave de frontmatter (author) deveria achar a nota");
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
     fn test_incremental_indexing_re_resolve_tie_breaker() {
         let mut conn = create_test_db();
         let temp_dir = std::env::temp_dir().join("mycellia_test_tie_breaker");

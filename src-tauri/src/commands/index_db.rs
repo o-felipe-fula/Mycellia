@@ -1,3 +1,7 @@
+// Tripwire (F0+F1): barra unwrap/expect NOVO neste módulo de I/O (clippy::unwrap_used/expect_used).
+// Todos os sites de produção foram convertidos para Result (F1); nenhum #[allow] restante.
+#![deny(clippy::unwrap_used, clippy::expect_used)]
+
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -248,7 +252,7 @@ fn index_vault(app: &AppHandle, vault_path: &str) -> Result<(), String> {
         let conn = init_db_connection(&db_path).map_err(|e| format!("Falha ao inicializar o banco: {}", e))?;
         *conn_lock = Some(conn);
     }
-    let conn = conn_lock.as_mut().unwrap();
+    let conn = conn_lock.as_mut().ok_or_else(|| "Conexão com o banco perdida".to_string())?;
 
     // 1. Mapeia dados atuais do SQLite: path -> last_modified
     let db_notes_map: std::collections::HashMap<String, i64> = {
@@ -363,19 +367,24 @@ fn index_vault(app: &AppHandle, vault_path: &str) -> Result<(), String> {
             ).map_err(|e| e.to_string())?;
         }
 
-        // Insere propriedades
-        for (key, val) in meta.properties {
+        // Insere propriedades (e acumula chave+valor para o índice FTS — F2: busca enxerga o frontmatter)
+        let mut props_fts = String::new();
+        for (key, val) in &meta.properties {
             tx.execute(
                 "INSERT OR REPLACE INTO properties (note_path, key, value) VALUES (?, ?, ?)",
                 rusqlite::params![path_str, key, val],
             ).map_err(|e| e.to_string())?;
+            props_fts.push_str(key);
+            props_fts.push(' ');
+            props_fts.push_str(val);
+            props_fts.push(' ');
         }
 
-        // Insere no FTS5
+        // Insere no FTS5 (coluna properties agora indexável — F2)
         let tags_joined = meta.tags.join(" ");
         tx.execute(
             "INSERT INTO notes_fts (path, title, content, tags, properties) VALUES (?, ?, ?, ?, ?)",
-            rusqlite::params![path_str, meta.title, meta.clean_text, tags_joined, ""],
+            rusqlite::params![path_str, meta.title, meta.clean_text, tags_joined, props_fts.trim()],
         ).map_err(|e| e.to_string())?;
     }
 
@@ -450,7 +459,7 @@ pub fn search_notes<R: tauri::Runtime>(app: tauri::AppHandle<R>, query: String) 
     if conn_lock.is_none() {
         return Ok(Vec::new());
     }
-    let conn = conn_lock.as_mut().unwrap();
+    let conn = conn_lock.as_mut().ok_or_else(|| "Conexão com o banco perdida".to_string())?;
     
     let mut stmt = conn.prepare(
         "SELECT path, title, snippet(notes_fts, -1, '<b>', '</b>', '...', 16) 
@@ -488,7 +497,7 @@ pub fn get_matching_paths<R: tauri::Runtime>(app: tauri::AppHandle<R>, query: St
     if conn_lock.is_none() {
         return Ok(Vec::new());
     }
-    let conn = conn_lock.as_mut().unwrap();
+    let conn = conn_lock.as_mut().ok_or_else(|| "Conexão com o banco perdida".to_string())?;
     
     let mut stmt = conn.prepare(
         "SELECT path FROM notes_fts WHERE notes_fts MATCH ?"
@@ -532,7 +541,7 @@ pub fn get_all_notes(app: AppHandle) -> Result<Vec<NoteInfo>, String> {
     if conn_lock.is_none() {
         return Ok(Vec::new());
     }
-    let conn = conn_lock.as_mut().unwrap();
+    let conn = conn_lock.as_mut().ok_or_else(|| "Conexão com o banco perdida".to_string())?;
     let mut stmt = conn.prepare("SELECT path, title FROM notes").map_err(|e| e.to_string())?;
     let rows = stmt.query_map([], |row| {
         Ok(NoteInfo {
@@ -559,7 +568,7 @@ pub fn get_backlinks(app: AppHandle, target_path: String) -> Result<Vec<Backlink
     if conn_lock.is_none() {
         return Ok(Vec::new());
     }
-    let conn = conn_lock.as_mut().unwrap();
+    let conn = conn_lock.as_mut().ok_or_else(|| "Conexão com o banco perdida".to_string())?;
 
     // 1. Encontra o título da nota de destino
     let target_title: String = match conn.query_row(
@@ -745,17 +754,23 @@ pub fn index_single_file_in_tx(
         ).map_err(|e| e.to_string())?;
     }
 
-    for (key, val) in meta.properties {
+    // F2: acumula chave+valor das propriedades para o índice FTS (busca enxerga o frontmatter)
+    let mut props_fts = String::new();
+    for (key, val) in &meta.properties {
         tx.execute(
             "INSERT OR REPLACE INTO properties (note_path, key, value) VALUES (?, ?, ?)",
             rusqlite::params![path_str, key, val],
         ).map_err(|e| e.to_string())?;
+        props_fts.push_str(key);
+        props_fts.push(' ');
+        props_fts.push_str(val);
+        props_fts.push(' ');
     }
 
     let tags_joined = meta.tags.join(" ");
     tx.execute(
         "INSERT INTO notes_fts (path, title, content, tags, properties) VALUES (?, ?, ?, ?, ?)",
-        rusqlite::params![path_str, meta.title, meta.clean_text, tags_joined, ""],
+        rusqlite::params![path_str, meta.title, meta.clean_text, tags_joined, props_fts.trim()],
     ).map_err(|e| e.to_string())?;
 
     Ok(())
@@ -797,7 +812,7 @@ pub fn get_graph_data<R: tauri::Runtime>(app: tauri::AppHandle<R>) -> Result<Gra
     if conn_lock.is_none() {
         return Err("Database connection not initialized".to_string());
     }
-    let conn = conn_lock.as_mut().unwrap();
+    let conn = conn_lock.as_mut().ok_or_else(|| "Conexão com o banco perdida".to_string())?;
 
     let mut stmt = conn.prepare("SELECT path, title FROM notes").map_err(|e| e.to_string())?;
     let note_rows = stmt.query_map([], |row| {
