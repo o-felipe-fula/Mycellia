@@ -1,5 +1,5 @@
-// Tripwire F0: barra unwrap/expect NOVO neste módulo de I/O (clippy::unwrap_used/expect_used).
-// Sites existentes recebem #[allow] anotado com // TODO F1 (dívida a converter para Result no F1).
+// Tripwire (F0+F1): barra unwrap/expect NOVO neste módulo de I/O (clippy::unwrap_used/expect_used).
+// Os sites de produção já foram convertidos para Result (F1); resta só o #[allow] do mod tests.
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
 use serde::{Deserialize, Serialize};
@@ -319,7 +319,6 @@ pub fn move_item_internal(path: String, new_parent_path: String) -> Result<Strin
     Ok(dest_path.to_string_lossy().into_owned())
 }
 
-#[allow(clippy::unwrap_used, clippy::expect_used)] // TODO F1: converter para Result
 #[tauri::command]
 pub fn move_item<R: tauri::Runtime>(app: tauri::AppHandle<R>, path: String, new_parent_path: String) -> Result<String, String> {
     // 1. Resolver o caminho canônico do arquivo de origem ANTES de mover (ele ainda existe)
@@ -333,7 +332,7 @@ pub fn move_item<R: tauri::Runtime>(app: tauri::AppHandle<R>, path: String, new_
 
     // 4. Registrar no WatcherState para suprimir eco no watcher com caminhos canônicos
     if let Some(state) = app.try_state::<WatcherState>() {
-        let mut last_moved = state.last_moved.lock().unwrap();
+        let mut last_moved = state.last_moved.lock().map_err(|e| format!("Falha ao adquirir lock: {}", e))?;
         let now = Instant::now();
         last_moved.insert(canon_src.clone(), now);
         last_moved.insert(canon_dest.clone(), now);
@@ -442,7 +441,6 @@ fn write_file_internal(path: &str, content: &str, allow_create: bool) -> Result<
     Ok(())
 }
 
-#[allow(clippy::unwrap_used, clippy::expect_used)] // TODO F1: converter para Result
 #[tauri::command]
 pub fn write_file<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
@@ -452,7 +450,7 @@ pub fn write_file<R: tauri::Runtime>(
 ) -> Result<(), String> {
     let hash = compute_hash(&content);
     if let Some(state) = app.try_state::<WatcherState>() {
-        let mut last_written = state.last_written.lock().unwrap();
+        let mut last_written = state.last_written.lock().map_err(|e| format!("Falha ao adquirir lock: {}", e))?;
         let canon_path = canonicalize_path(&path);
         last_written.insert(canon_path, WriteRecord {
             hash,
@@ -462,7 +460,6 @@ pub fn write_file<R: tauri::Runtime>(
     write_file_internal(&path, &content, allow_create)
 }
 
-#[allow(clippy::unwrap_used, clippy::expect_used)] // TODO F1: converter para Result
 #[tauri::command]
 pub fn start_watching<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
@@ -489,18 +486,17 @@ pub fn start_watching<R: tauri::Runtime>(
         .watch(Path::new(&canon_vault_path), notify::RecursiveMode::Recursive)
         .map_err(|e| format!("Falha ao registrar caminho no watcher: {}", e))?;
 
-    let mut debouncer_lock = state.debouncer.lock().unwrap();
+    let mut debouncer_lock = state.debouncer.lock().map_err(|e| format!("Falha ao adquirir lock: {}", e))?;
     *debouncer_lock = Some(debouncer);
 
     Ok(())
 }
 
-#[allow(clippy::unwrap_used, clippy::expect_used)] // TODO F1: converter para Result
 #[tauri::command]
 pub fn stop_watching(
     state: tauri::State<'_, WatcherState>,
 ) -> Result<(), String> {
-    let mut debouncer_lock = state.debouncer.lock().unwrap();
+    let mut debouncer_lock = state.debouncer.lock().map_err(|e| format!("Falha ao adquirir lock: {}", e))?;
     if let Some(debouncer) = debouncer_lock.take() {
         drop(debouncer);
     }
@@ -548,7 +544,6 @@ pub struct VaultChange {
     pub is_echo: bool,
 }
 
-#[allow(clippy::unwrap_used, clippy::expect_used)] // TODO F1: converter para Result
 fn handle_watcher_events<R: tauri::Runtime>(app: &tauri::AppHandle<R>, vault_path: &str, events: Vec<DebouncedEvent>) -> Result<(), String> {
     use std::collections::HashSet;
     
@@ -630,14 +625,14 @@ fn handle_watcher_events<R: tauri::Runtime>(app: &tauri::AppHandle<R>, vault_pat
 
     // 1. Limpar registros expirados de last_written e last_moved (mais velhos que 1000ms)
     {
-        let mut last_written = watcher_state.last_written.lock().unwrap();
+        let mut last_written = watcher_state.last_written.lock().map_err(|e| format!("Falha ao adquirir lock: {}", e))?;
         let now = Instant::now();
         last_written.retain(|_, record| {
             now.duration_since(record.timestamp) < std::time::Duration::from_millis(1000)
         });
     }
     {
-        let mut last_moved = watcher_state.last_moved.lock().unwrap();
+        let mut last_moved = watcher_state.last_moved.lock().map_err(|e| format!("Falha ao adquirir lock: {}", e))?;
         let now = Instant::now();
         last_moved.retain(|_, timestamp| {
             now.duration_since(*timestamp) < std::time::Duration::from_millis(1000)
@@ -645,7 +640,7 @@ fn handle_watcher_events<R: tauri::Runtime>(app: &tauri::AppHandle<R>, vault_pat
     }
     
     let is_move_echo = |path: &str| -> bool {
-        let last_moved = watcher_state.last_moved.lock().unwrap();
+        let Ok(last_moved) = watcher_state.last_moved.lock() else { return false; };
         let now = Instant::now();
         
         last_moved.iter().any(|(moved_path, timestamp)| {
@@ -680,7 +675,7 @@ fn handle_watcher_events<R: tauri::Runtime>(app: &tauri::AppHandle<R>, vault_pat
         }
 
         let is_echo_delete = {
-            let last_written = watcher_state.last_written.lock().unwrap();
+            let last_written = watcher_state.last_written.lock().map_err(|e| format!("Falha ao adquirir lock: {}", e))?;
             if let Some(record) = last_written.get(&path) {
                 if Instant::now().duration_since(record.timestamp) < std::time::Duration::from_millis(1000) {
                     let p = Path::new(&path);
@@ -743,7 +738,7 @@ fn handle_watcher_events<R: tauri::Runtime>(app: &tauri::AppHandle<R>, vault_pat
         let hash = compute_hash(&content);
         
         let is_echo = {
-            let last_written = watcher_state.last_written.lock().unwrap();
+            let last_written = watcher_state.last_written.lock().map_err(|e| format!("Falha ao adquirir lock: {}", e))?;
             if let Some(record) = last_written.get(&path) {
                 Instant::now().duration_since(record.timestamp) < std::time::Duration::from_millis(1000) && record.hash == hash
             } else {
@@ -831,7 +826,6 @@ fn format_timestamp_utc(secs: u64) -> String {
     format!("{:04}{:02}{:02}{:02}{:02}{:02}", year, month, day, hour, minute, second)
 }
 
-#[allow(clippy::unwrap_used, clippy::expect_used)] // TODO F1: converter para Result
 #[tauri::command]
 pub fn save_pasted_image<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
@@ -905,7 +899,7 @@ pub fn save_pasted_image<R: tauri::Runtime>(
 
     let path_str = target_path.to_string_lossy().into_owned();
     if let Some(state) = app.try_state::<WatcherState>() {
-        let mut last_written = state.last_written.lock().unwrap();
+        let mut last_written = state.last_written.lock().map_err(|e| format!("Falha ao adquirir lock: {}", e))?;
         let canon_path = canonicalize_path(&path_str);
         last_written.insert(canon_path, WriteRecord {
             hash,

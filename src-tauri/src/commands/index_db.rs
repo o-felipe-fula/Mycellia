@@ -1,5 +1,5 @@
-// Tripwire F0: barra unwrap/expect NOVO neste módulo de I/O (clippy::unwrap_used/expect_used).
-// Sites existentes recebem #[allow] anotado com // TODO F1 (dívida a converter para Result no F1).
+// Tripwire (F0+F1): barra unwrap/expect NOVO neste módulo de I/O (clippy::unwrap_used/expect_used).
+// Todos os sites de produção foram convertidos para Result (F1); nenhum #[allow] restante.
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
 use rusqlite::Connection;
