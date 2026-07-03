@@ -41,10 +41,26 @@ fn compute_hash(content: &str) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-fn canonicalize_path(path: &str) -> String {
+pub(crate) fn canonicalize_path(path: &str) -> String {
     #[cfg(target_os = "windows")]
     {
-        path.to_string()
+        // F4.2 (Spec 16, Achado C): deixou de ser passthrough. dunce::canonicalize resolve o
+        // casing real do disco e o drive letter SEM devolver o prefixo UNC `\\?\` (que
+        // contaminaria as chaves do DB e a UI) — mantém o prefixo só quando o path é longo
+        // demais para a forma legada. Path inexistente (ex.: evento de delete do watcher):
+        // canonicaliza o pai (que normalmente ainda existe) e re-anexa o nome do arquivo —
+        // mesmo fallback do branch Unix.
+        let p = Path::new(path);
+        if let Ok(canon) = dunce::canonicalize(p) {
+            canon.to_string_lossy().into_owned()
+        } else {
+            if let (Some(parent), Some(file_name)) = (p.parent(), p.file_name()) {
+                if let Ok(canon_parent) = dunce::canonicalize(parent) {
+                    return canon_parent.join(file_name).to_string_lossy().into_owned();
+                }
+            }
+            path.to_string()
+        }
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -157,6 +173,9 @@ pub fn load_vault_tree_internal(vault_path: String) -> Result<FileNode, String> 
 // Carregar toda a árvore com telemetria e concessão dinâmica do escopo do asset protocol
 #[tauri::command]
 pub fn load_vault_tree(app: tauri::AppHandle, vault_path: String) -> Result<FileNode, String> {
+    // F4.2: root canônico na entrada — os paths de TODOS os filhos (e portanto as chaves do
+    // DB e as strings que o front devolve) herdam a forma do root usado no walk
+    let vault_path = canonicalize_path(&vault_path);
     let root_path = Path::new(&vault_path);
     if root_path.exists() && root_path.is_dir() {
         // Conceder escopo do asset protocol dinamicamente ao vault e subdiretórios
@@ -350,10 +369,15 @@ pub fn move_item<R: tauri::Runtime>(app: tauri::AppHandle<R>, path: String, new_
     let source_path = Path::new(&canon_src);
     let target_path = Path::new(&canon_dest);
 
+    // F4: acumula o delta de paths do move para o re-resolve incremental de links
+    let mut changed_paths: std::collections::HashSet<String> = std::collections::HashSet::new();
+    changed_paths.insert(canon_src.clone());
+    changed_paths.insert(canon_dest.clone());
+
     if target_path.is_file() {
         // Excluir a nota antiga
         crate::commands::index_db::delete_file_in_tx(&tx, &canon_src)?;
-        
+
         // Obter mtime e indexar nova nota
         let mtime = get_mtime(target_path);
         crate::commands::index_db::index_single_file_in_tx(&tx, target_path, mtime)?;
@@ -361,16 +385,18 @@ pub fn move_item<R: tauri::Runtime>(app: tauri::AppHandle<R>, path: String, new_
         // É um diretório. Recursivamente encontrar e reindexar todas as notas .md dele.
         let mut md_files = Vec::new();
         get_all_md_files(target_path, &mut md_files);
-        
+
         for md_file in md_files {
             // Computa o caminho antigo correspondente de forma resiliente para Windows (Correction #2)
             if let Ok(rel) = md_file.strip_prefix(target_path) {
                 let old_md_path = source_path.join(rel);
                 let old_md_str = old_md_path.to_string_lossy().into_owned();
-                
+                changed_paths.insert(old_md_str.clone());
+                changed_paths.insert(md_file.to_string_lossy().into_owned());
+
                 // Excluir a nota antiga
                 crate::commands::index_db::delete_file_in_tx(&tx, &old_md_str)?;
-                
+
                 // Indexar nova nota no índice
                 let mtime = get_mtime(&md_file);
                 crate::commands::index_db::index_single_file_in_tx(&tx, &md_file, mtime)?;
@@ -378,11 +404,11 @@ pub fn move_item<R: tauri::Runtime>(app: tauri::AppHandle<R>, path: String, new_
         }
     }
 
-    // Re-resolver links usando o caminho do vault também canonicalizado para manter integridade
+    // Re-resolver links (F4: incremental sobre o delta do move) com o vault canonicalizado
     let config = crate::commands::config::load_config(app.clone());
     if let Some(vault_path) = config.current_vault {
         let canon_vault = canonicalize_path(&vault_path);
-        crate::commands::index_db::re_resolve_all_links(&tx, &canon_vault).map_err(|e| e.to_string())?;
+        crate::commands::index_db::re_resolve_links_incremental(&tx, &canon_vault, &changed_paths).map_err(|e| e.to_string())?;
     }
 
     tx.commit().map_err(|e| e.to_string())?;
@@ -546,7 +572,17 @@ pub struct VaultChange {
 
 fn handle_watcher_events<R: tauri::Runtime>(app: &tauri::AppHandle<R>, vault_path: &str, events: Vec<DebouncedEvent>) -> Result<(), String> {
     use std::collections::HashSet;
-    
+
+    // BUG-02: se a RAIZ do vault sumiu (renomeada/movida/excluída com o app aberto), o batch
+    // inteiro é intocável — os eventos carregam paths velhos que ainda são chaves vivas no
+    // índice, e processá-los erodiria o índice com falsos deletes (os arquivos continuam
+    // intactos no disco, só a raiz mudou de nome). Aborta sem tocar o índice e avisa o front
+    // (vira notificação persistente; um batch válido subsequente limpa — self-heal).
+    if !Path::new(vault_path).exists() {
+        let _ = app.emit("vault-root-lost", vault_path);
+        return Ok(());
+    }
+
     let mut paths_to_delete = HashSet::new();
     let mut paths_to_index = HashSet::new();
     
@@ -666,7 +702,11 @@ fn handle_watcher_events<R: tauri::Runtime>(app: &tauri::AppHandle<R>, vault_pat
     };
     
     let mut changes = Vec::new();
-    
+
+    // F4: delta do batch para o re-resolve incremental de links. União ANTES dos filtros de
+    // eco (superconjunto seguro: re-resolver um path de eco é idempotente — não muda nada).
+    let changed_paths: HashSet<String> = paths_to_delete.union(&paths_to_index).cloned().collect();
+
     // 2. Processar remoções e suprimir ecos de deleção transitória
     for path in paths_to_delete {
         if is_move_echo(&path) {
@@ -775,14 +815,14 @@ fn handle_watcher_events<R: tauri::Runtime>(app: &tauri::AppHandle<R>, vault_pat
         });
     }
     
-    crate::commands::index_db::re_resolve_all_links(&tx, vault_path).map_err(|e| e.to_string())?;
-    
+    crate::commands::index_db::re_resolve_links_incremental(&tx, vault_path, &changed_paths).map_err(|e| e.to_string())?;
+
     tx.commit().map_err(|e| e.to_string())?;
-    
+
     if !changes.is_empty() {
         app.emit("vault-change", changes).map_err(|e| e.to_string())?;
     }
-    
+
     Ok(())
 }
 
@@ -918,6 +958,117 @@ mod tests {
     use std::env;
     use std::fs;
     use tauri::Listener;
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn test_canonicalize_path_windows_consistency() {
+        // F4.2 (Spec 16, Achado C): o branch Windows deixou de ser passthrough — casing
+        // divergente do disco tem que convergir para UMA forma canônica (senão as chaves do
+        // DB e os eventos do watcher desalinham e strip_prefix do vault falha em silêncio).
+        let temp_dir = env::temp_dir().join("MycelliaCanonTest");
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
+        let file_path = temp_dir.join("Nota.md");
+        fs::write(&file_path, "x").unwrap();
+
+        // 1. Variações de casing do MESMO arquivo convergem para a mesma string canônica
+        let canon_real = canonicalize_path(&file_path.to_string_lossy());
+        let variant_upper = file_path.to_string_lossy().to_uppercase();
+        let variant_lower = file_path.to_string_lossy().to_lowercase();
+        assert_eq!(canon_real, canonicalize_path(&variant_upper));
+        assert_eq!(canon_real, canonicalize_path(&variant_lower));
+
+        // 2. Sem prefixo UNC `\\?\` (contaminaria chaves do DB e UI)
+        assert!(!canon_real.starts_with("\\\\?\\"), "prefixo UNC vazou: {}", canon_real);
+
+        // 3. Idempotência: canonicalizar o canônico é no-op
+        assert_eq!(canonicalize_path(&canon_real), canon_real);
+
+        // 4. Path inexistente (ex.: delete do watcher): canonicaliza o PAI e preserva o nome —
+        //    o fantasma fica no mesmo dir canônico do arquivo real
+        let ghost = temp_dir.join("nao_existe.md");
+        let canon_ghost = canonicalize_path(&ghost.to_string_lossy());
+        assert!(canon_ghost.ends_with("nao_existe.md"));
+        assert_eq!(
+            Path::new(&canon_ghost).parent(),
+            Path::new(&canon_real).parent(),
+            "pai do path inexistente deve ser o mesmo pai canônico do arquivo real"
+        );
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_watcher_batch_aborted_when_vault_root_lost() {
+        // BUG-02: raiz do vault renomeada/movida/excluída com o app aberto → o batch do watcher
+        // carrega paths velhos que ainda são chaves vivas no índice; processá-lo apagaria notas
+        // do índice com os arquivos intactos no disco (só a raiz mudou de nome). O guard aborta
+        // o batch inteiro, não toca o índice e emite "vault-root-lost" pro front.
+        let temp_root = env::temp_dir().join("mycellia_test_root_lost");
+        let renamed_root = env::temp_dir().join("mycellia_test_root_lost_RENOMEADA");
+        let _ = fs::remove_dir_all(&temp_root);
+        let _ = fs::remove_dir_all(&renamed_root);
+        fs::create_dir_all(&temp_root).unwrap();
+        let note_path = temp_root.join("nota.md");
+        fs::write(&note_path, "conteudo").unwrap();
+
+        let app = tauri::test::mock_builder()
+            .manage(crate::commands::index_db::DbState::default())
+            .manage(WatcherState::default())
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let handle = app.handle();
+
+        let db_state = handle.state::<crate::commands::index_db::DbState>();
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute("CREATE TABLE IF NOT EXISTS notes (path TEXT PRIMARY KEY, title TEXT NOT NULL, last_modified INTEGER NOT NULL);", []).unwrap();
+        conn.execute("CREATE TABLE IF NOT EXISTS links (source_path TEXT NOT NULL, target_name TEXT NOT NULL, target_path TEXT, PRIMARY KEY (source_path, target_name), FOREIGN KEY (source_path) REFERENCES notes (path) ON DELETE CASCADE);", []).unwrap();
+        conn.execute("CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(path, title, content, tags, properties);", []).unwrap();
+
+        let canon_note = canonicalize_path(&note_path.to_string_lossy());
+        let canon_vault = canonicalize_path(&temp_root.to_string_lossy());
+        conn.execute(
+            "INSERT INTO notes (path, title, last_modified) VALUES (?, ?, 0)",
+            [canon_note.clone(), "nota".to_string()],
+        ).unwrap();
+        *db_state.conn.lock().unwrap() = Some(conn);
+
+        // Captura o que chega no front
+        let root_lost = std::sync::Arc::new(Mutex::new(Vec::<String>::new()));
+        let root_lost_clone = root_lost.clone();
+        handle.listen_any("vault-root-lost", move |event| {
+            root_lost_clone.lock().unwrap().push(event.payload().to_string());
+        });
+        let vault_changes = std::sync::Arc::new(Mutex::new(0usize));
+        let vault_changes_clone = vault_changes.clone();
+        handle.listen_any("vault-change", move |_| {
+            *vault_changes_clone.lock().unwrap() += 1;
+        });
+
+        // A raiz é renomeada com o "app aberto" (a nota continua intacta, sob a raiz nova)
+        fs::rename(&temp_root, &renamed_root).unwrap();
+
+        // Batch sintético com o path VELHO da nota — como o watcher entregaria pós-rename
+        let stale_event = DebouncedEvent {
+            event: notify::Event::new(notify::EventKind::Remove(notify::event::RemoveKind::File))
+                .add_path(PathBuf::from(&canon_note)),
+            time: Instant::now(),
+        };
+        handle_watcher_events(handle, &canon_vault, vec![stale_event]).unwrap();
+
+        // 1. Índice INTOCADO — sem falso delete (era a erosão do BUG-02)
+        let db_state = handle.state::<crate::commands::index_db::DbState>();
+        let count: i64 = db_state.conn.lock().unwrap().as_ref().unwrap()
+            .query_row("SELECT COUNT(*) FROM notes", [], |row| row.get(0)).unwrap();
+        assert_eq!(count, 1, "batch com raiz perdida não pode erodir o índice");
+
+        // 2. Front avisado 1x, e nenhum vault-change processado
+        assert_eq!(root_lost.lock().unwrap().len(), 1, "deve emitir vault-root-lost");
+        assert!(root_lost.lock().unwrap()[0].contains("mycellia_test_root_lost"));
+        assert_eq!(*vault_changes.lock().unwrap(), 0);
+
+        let _ = fs::remove_dir_all(&renamed_root);
+    }
 
     #[test]
     fn test_read_write_file_atomic() {

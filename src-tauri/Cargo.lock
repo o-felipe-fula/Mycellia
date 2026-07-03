@@ -2212,6 +2212,7 @@ name = "mycellia"
 version = "0.6.0"
 dependencies = [
  "base64 0.22.1",
+ "dunce",
  "notify",
  "notify-debouncer-full",
  "pulldown-cmark",

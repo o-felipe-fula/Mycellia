@@ -291,6 +291,30 @@ function handleSaveFailure(path: string, content: string, e: unknown) {
   });
 }
 
+// BUG-02: raiz do vault sumiu (renomeada/movida/excluída com o app aberto). O Rust aborta o
+// batch do watcher (preserva o índice) e emite 'vault-root-lost'; aqui vira notificação
+// persistente, deduplicada (o evento repete a cada batch enquanto a raiz não voltar).
+// Um batch válido subsequente de 'vault-change' (raiz voltou / vault trocado) limpa — self-heal.
+let vaultRootLostNotifId: string | null = null;
+
+function clearVaultRootLost() {
+  if (vaultRootLostNotifId) {
+    useAppStore.getState().dismissNotification(vaultRootLostNotifId);
+    vaultRootLostNotifId = null;
+  }
+}
+
+function handleVaultRootLost(vaultPath: string) {
+  const state = useAppStore.getState();
+  // Dedup: se a notificação ainda está visível, não flicka nem duplica
+  if (vaultRootLostNotifId && state.notifications.some((n) => n.id === vaultRootLostNotifId)) {
+    return;
+  }
+  const msg = `A pasta do vault (${vaultPath}) foi movida, renomeada ou excluída com o app aberto. Reabra o vault para continuar — o índice foi preservado.`;
+  console.error(msg);
+  vaultRootLostNotifId = state.notify('error', msg, { persistent: true });
+}
+
 const scheduleSaveHelper = () => {
   if (saveTimeout) {
     clearTimeout(saveTimeout);
@@ -949,6 +973,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     const unlisten = await listen<{ path: string; changeType: 'create' | 'modify' | 'delete'; isEcho: boolean }[]>(
       'vault-change',
       async (event) => {
+        // BUG-02: um batch válido chegou = a raiz existia durante o processamento → self-heal
+        clearVaultRootLost();
+
         const changes = event.payload;
         const state = get();
         const activeTab = state.activeTab;
@@ -1035,7 +1062,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     );
 
-    return unlisten;
+    // BUG-02: raiz do vault perdida (renomeada/movida com o app aberto) → notificação persistente
+    const unlistenRootLost = await listen<string>('vault-root-lost', (event) => {
+      handleVaultRootLost(event.payload);
+    });
+
+    return () => {
+      unlisten();
+      unlistenRootLost();
+    };
   },
 
   refreshExistingNotes: async () => {

@@ -71,6 +71,41 @@ describe('File Watching and Disk Synchronization tests', () => {
     });
   });
 
+  it('BUG-02: raiz do vault perdida → notificação persistente deduplicada; batch válido limpa (self-heal)', async () => {
+    await useAppStore.getState().initApp();
+    await useAppStore.getState().openTab('C:\\MyVault\\Nota A.md');
+    const unlisten = await useAppStore.getState().setupVaultChangeListener();
+
+    // Raiz sumiu: o Rust emite vault-root-lost (e repete a cada batch enquanto não volta)
+    (window as TestWindow).__triggerTauriEvent?.('vault-root-lost', 'C:\\MyVault');
+    (window as TestWindow).__triggerTauriEvent?.('vault-root-lost', 'C:\\MyVault');
+
+    const persistentes = useAppStore.getState().notifications.filter(
+      (n) => n.persistent && n.message.includes('Reabra o vault')
+    );
+    expect(persistentes).toHaveLength(1); // deduplicada — dois eventos, uma notificação
+    expect(persistentes[0].type).toBe('error');
+
+    // Nada destrutivo no estado do editor (aba ativa preservada)
+    expect(useAppStore.getState().activeTab).toBe('C:\\MyVault\\Nota A.md');
+
+    // Raiz voltou: um batch válido de vault-change limpa a notificação (self-heal)
+    (window as TestWindow).__triggerTauriEvent?.('vault-change', [
+      { path: 'C:\\MyVault\\Nota B.md', changeType: 'modify', isEcho: true },
+    ]);
+    await vi.waitFor(
+      () => {
+        expect(
+          useAppStore.getState().notifications.some((n) => n.message.includes('Reabra o vault'))
+        ).toBe(false);
+      },
+      // Timeout generoso: sob carga (CI/gate paralelo) o default de 1s já flakou
+      { timeout: 5000 }
+    );
+
+    unlisten();
+  });
+
   it('Corrida do Eco: não deve disparar recarga se o evento do watcher for um eco de nossa própria escrita', async () => {
     await useAppStore.getState().initApp();
     await useAppStore.getState().openTab('C:\\MyVault\\Nota A.md');
