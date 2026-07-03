@@ -149,7 +149,27 @@ fn get_all_md_files(dir: &Path, files: &mut Vec<PathBuf>) {
     }
 }
 
-// Auxiliar determinístico para resolver o caminho de destino de um wiki-link
+// Comparador determinístico de candidatos: menor caminho relativo ao vault primeiro,
+// desempate lexicográfico. Compartilhado entre o oráculo (resolve_target_path) e o LinkResolver.
+fn compare_candidates_by_rel(a: &str, b: &str, vault_path: &str) -> std::cmp::Ordering {
+    let rel_a = Path::new(a).strip_prefix(vault_path).map(|r| r.to_string_lossy().replace('\\', "/")).unwrap_or_default();
+    let rel_b = Path::new(b).strip_prefix(vault_path).map(|r| r.to_string_lossy().replace('\\', "/")).unwrap_or_default();
+
+    let len_a = rel_a.len();
+    let len_b = rel_b.len();
+
+    if len_a != len_b {
+        len_a.cmp(&len_b)
+    } else {
+        rel_a.cmp(&rel_b)
+    }
+}
+
+// Auxiliar determinístico para resolver o caminho de destino de um wiki-link.
+// F4: virou o ORÁCULO de teste — a produção usa o LinkResolver (mesma semântica, build
+// O(notas) + lookup O(1) em vez de varredura O(notas) por link). O teste de propriedade
+// assere a equivalência dos dois; mudanças de semântica precisam passar nos dois lugares.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn resolve_target_path(target_name: &str, all_paths: &[String], vault_path: &str) -> Option<String> {
     // 1. Busca prioritária por correspondência exata (case-sensitive)
     let mut exact_candidates = Vec::new();
@@ -174,19 +194,7 @@ pub fn resolve_target_path(target_name: &str, all_paths: &[String], vault_path: 
 
     if !exact_candidates.is_empty() {
         // Desempate determinístico para matches exatos
-        exact_candidates.sort_by(|a, b| {
-            let rel_a = Path::new(a).strip_prefix(vault_path).map(|r| r.to_string_lossy().replace('\\', "/")).unwrap_or_default();
-            let rel_b = Path::new(b).strip_prefix(vault_path).map(|r| r.to_string_lossy().replace('\\', "/")).unwrap_or_default();
-            
-            let len_a = rel_a.len();
-            let len_b = rel_b.len();
-            
-            if len_a != len_b {
-                len_a.cmp(&len_b)
-            } else {
-                rel_a.cmp(&rel_b)
-            }
-        });
+        exact_candidates.sort_by(|a, b| compare_candidates_by_rel(a, b, vault_path));
         return exact_candidates.first().cloned();
     }
 
@@ -225,21 +233,92 @@ pub fn resolve_target_path(target_name: &str, all_paths: &[String], vault_path: 
     }
 
     // Desempate determinístico secundário
-    candidates.sort_by(|a, b| {
-        let rel_a = Path::new(a).strip_prefix(vault_path).map(|r| r.to_string_lossy().replace('\\', "/")).unwrap_or_default();
-        let rel_b = Path::new(b).strip_prefix(vault_path).map(|r| r.to_string_lossy().replace('\\', "/")).unwrap_or_default();
-        
-        let len_a = rel_a.len();
-        let len_b = rel_b.len();
-        
-        if len_a != len_b {
-            len_a.cmp(&len_b)
-        } else {
-            rel_a.cmp(&rel_b)
-        }
-    });
+    candidates.sort_by(|a, b| compare_candidates_by_rel(a, b, vault_path));
 
     candidates.first().cloned()
+}
+
+// F4: resolvedor de wiki-links com a MESMA semântica do resolve_target_path (match exato
+// case-sensitive tem precedência — regra do §33 —, fallback case-insensitive com aviso de
+// colisão, desempate determinístico), mas com build O(notas) e lookup O(1) por link.
+// Antes do F4, o re_resolve_all_links tinha uma segunda implementação SÓ case-insensitive,
+// que podia flipar silenciosamente um link exato após qualquer batch do watcher (Spec 16, Achado A).
+pub struct LinkResolver {
+    exact_basename: std::collections::HashMap<String, Vec<String>>,
+    exact_rel: std::collections::HashMap<String, Vec<String>>,
+    ci_basename: std::collections::HashMap<String, Vec<String>>,
+    ci_rel: std::collections::HashMap<String, Vec<String>>,
+    vault_path: String,
+}
+
+impl LinkResolver {
+    pub fn build(all_paths: &[String], vault_path: &str) -> Self {
+        let mut resolver = LinkResolver {
+            exact_basename: std::collections::HashMap::new(),
+            exact_rel: std::collections::HashMap::new(),
+            ci_basename: std::collections::HashMap::new(),
+            ci_rel: std::collections::HashMap::new(),
+            vault_path: vault_path.to_string(),
+        };
+
+        for path in all_paths {
+            let p_path = Path::new(path);
+            let file_name = p_path.file_name().unwrap_or_default().to_string_lossy();
+            let basename = file_name.strip_suffix(".md").unwrap_or(&file_name).to_string();
+            resolver.ci_basename.entry(basename.to_lowercase()).or_default().push(path.clone());
+            resolver.exact_basename.entry(basename).or_default().push(path.clone());
+
+            if let Ok(rel) = p_path.strip_prefix(vault_path) {
+                let rel_str = rel.to_string_lossy().replace('\\', "/");
+                let rel_basename = rel_str.strip_suffix(".md").unwrap_or(&rel_str).to_string();
+                resolver.ci_rel.entry(rel_basename.to_lowercase()).or_default().push(path.clone());
+                resolver.exact_rel.entry(rel_basename).or_default().push(path.clone());
+            }
+        }
+
+        resolver
+    }
+
+    // União basename ∪ caminho-relativo sem duplicar o mesmo path (espelha o `continue` do oráculo)
+    fn collect_candidates(basenames: Option<&Vec<String>>, rels: Option<&Vec<String>>) -> Vec<String> {
+        let mut candidates: Vec<String> = Vec::new();
+        if let Some(paths) = basenames {
+            candidates.extend_from_slice(paths);
+        }
+        if let Some(paths) = rels {
+            for p in paths {
+                if !candidates.contains(p) {
+                    candidates.push(p.clone());
+                }
+            }
+        }
+        candidates
+    }
+
+    pub fn resolve(&self, target_name: &str) -> Option<String> {
+        // 1. Busca prioritária por correspondência exata (case-sensitive)
+        let mut candidates =
+            Self::collect_candidates(self.exact_basename.get(target_name), self.exact_rel.get(target_name));
+
+        // 2. Fallback case-insensitive se não houver match exato
+        if candidates.is_empty() {
+            let target_lower = target_name.to_lowercase();
+            candidates =
+                Self::collect_candidates(self.ci_basename.get(&target_lower), self.ci_rel.get(&target_lower));
+            if candidates.is_empty() {
+                return None;
+            }
+            if candidates.len() > 1 {
+                eprintln!(
+                    "Warning: Wiki-link collision warning for '{}'. Multiple matches exist case-insensitively: {:?}",
+                    target_name, candidates
+                );
+            }
+        }
+
+        candidates.sort_by(|a, b| compare_candidates_by_rel(a, b, &self.vault_path));
+        candidates.first().cloned()
+    }
 }
 
 // Indexa o vault de forma incremental
@@ -307,7 +386,6 @@ fn index_vault(app: &AppHandle, vault_path: &str) -> Result<(), String> {
 
     // 4. Executa transação em lote (Fast Batch)
     let tx = conn.transaction().map_err(|e| format!("Falha ao abrir transação: {}", e))?;
-    let all_paths_vec: Vec<String> = current_paths.iter().cloned().collect();
 
     // Deleta registros obsoletos (o CASCADE limpa links/tags/properties e o TRIGGER limpa fts)
     for path in to_delete {
@@ -349,13 +427,12 @@ fn index_vault(app: &AppHandle, vault_path: &str) -> Result<(), String> {
         tx.execute("DELETE FROM properties WHERE note_path = ?", [&path_str]).map_err(|e| e.to_string())?;
         tx.execute("DELETE FROM notes_fts WHERE path = ?", [&path_str]).map_err(|e| e.to_string())?;
 
-        // Insere novos links
+        // Insere novos links sem resolver (F4: a resolução acontece 1× no fim da transação,
+        // via LinkResolver — mesmo contrato do index_single_file_in_tx)
         for link in meta.links {
-            let resolved_path = resolve_target_path(&link, &all_paths_vec, vault_path);
-
             tx.execute(
-                "INSERT OR REPLACE INTO links (source_path, target_name, target_path) VALUES (?, ?, ?)",
-                rusqlite::params![path_str, link, resolved_path],
+                "INSERT OR REPLACE INTO links (source_path, target_name, target_path) VALUES (?, ?, NULL)",
+                rusqlite::params![path_str, link],
             ).map_err(|e| e.to_string())?;
         }
 
@@ -387,6 +464,11 @@ fn index_vault(app: &AppHandle, vault_path: &str) -> Result<(), String> {
             rusqlite::params![path_str, meta.title, meta.clean_text, tags_joined, props_fts.trim()],
         ).map_err(|e| e.to_string())?;
     }
+
+    // F4: resolve os links no fim da transação. Além dos arquivos recém-indexados (NULL),
+    // isto re-resolve links de arquivos NÃO-modificados afetados por notas criadas/deletadas
+    // com o app fechado — que antes ficavam com target_path velho (Spec 16, Achado B).
+    re_resolve_all_links(&tx, vault_path).map_err(|e| e.to_string())?;
 
     tx.commit().map_err(|e| format!("Erro no commit da transação: {}", e))?;
 
@@ -642,78 +724,33 @@ pub fn re_resolve_all_links(tx: &rusqlite::Transaction, vault_path: &str) -> Res
         .query_map([], |row| row.get::<_, String>(0))?
         .collect::<Result<Vec<_>, _>>()?;
     
-    let mut basename_map: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
-    let mut rel_path_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-    
-    for path in &all_paths_vec {
-        let p_path = Path::new(path);
-        if let Some(file_name) = p_path.file_name() {
-            let file_name_str = file_name.to_string_lossy().to_lowercase();
-            let basename = file_name_str.strip_suffix(".md").unwrap_or(&file_name_str).to_string();
-            basename_map.entry(basename).or_default().push(path.clone());
-        }
-        
-        if let Ok(rel) = p_path.strip_prefix(vault_path) {
-            let rel_str = rel.to_string_lossy().replace('\\', "/").to_lowercase();
-            let rel_basename = rel_str.strip_suffix(".md").unwrap_or(&rel_str).to_string();
-            rel_path_map.insert(rel_basename, path.clone());
-        }
-    }
-    
+    // F4: uma única semântica de resolução no app inteiro (a mesma da indexação inicial:
+    // exato-primeiro). A antiga implementação só case-insensitive daqui era o Achado A do Spec 16.
+    let resolver = LinkResolver::build(&all_paths_vec, vault_path);
+
     let mut stmt = tx.prepare("SELECT source_path, target_name, target_path FROM links")?;
     let links: Vec<(String, String, Option<String>)> = stmt
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
         .collect::<Result<Vec<_>, _>>()?;
-    
+
     let mut update_stmt = tx.prepare("UPDATE links SET target_path = ? WHERE source_path = ? AND target_name = ?")?;
     let mut update_count = 0;
-    
+    let total_links = links.len();
+
     for (source_path, target_name, current_target_path) in links {
-        let target_lower = target_name.to_lowercase();
-        let mut candidates = Vec::new();
-        
-        if let Some(paths) = basename_map.get(&target_lower) {
-            for p in paths {
-                candidates.push(p.clone());
-            }
-        }
-        
-        if let Some(p) = rel_path_map.get(&target_lower) {
-            if !candidates.contains(p) {
-                candidates.push(p.clone());
-            }
-        }
-        
-        let resolved = if candidates.is_empty() {
-            None
-        } else {
-            candidates.sort_by(|a, b| {
-                let rel_a = Path::new(a).strip_prefix(vault_path).map(|r| r.to_string_lossy().replace('\\', "/")).unwrap_or_default();
-                let rel_b = Path::new(b).strip_prefix(vault_path).map(|r| r.to_string_lossy().replace('\\', "/")).unwrap_or_default();
-                
-                let len_a = rel_a.len();
-                let len_b = rel_b.len();
-                
-                if len_a != len_b {
-                    len_a.cmp(&len_b)
-                } else {
-                    rel_a.cmp(&rel_b)
-                }
-            });
-            candidates.first().cloned()
-        };
-        
+        let resolved = resolver.resolve(&target_name);
+
         if resolved != current_target_path {
             update_stmt.execute(rusqlite::params![resolved, source_path, target_name])?;
             update_count += 1;
         }
     }
-    
+
     println!(
-        "re_resolve_all_links performance check: processed links, updated {} target_paths in {:?}",
-        update_count, start.elapsed()
+        "re_resolve_all_links performance check: processed {} links, updated {} target_paths in {:?}",
+        total_links, update_count, start.elapsed()
     );
-    
+
     Ok(())
 }
 

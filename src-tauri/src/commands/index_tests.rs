@@ -485,7 +485,7 @@ fn main() {
                     let path = entry.path();
                     if path.is_dir() {
                         collect_md(&path, files);
-                    } else if path.extension().map_or(false, |ext| ext == "md") {
+                    } else if path.extension().is_some_and(|ext| ext == "md") {
                         files.push(path);
                     }
                 }
@@ -1204,6 +1204,45 @@ Link vazio (deve ser ignorado): [[]].
         // 3. [[NOTA]] (sem match exato) cai no fallback case-insensitive e resolve deterministicamente para Nota.md (ASCII 'N' < 'n')
         let resolved_nota_all_caps = resolve_target_path("NOTA", &all_paths, vault_path);
         assert_eq!(resolved_nota_all_caps, Some("/home/user/vault/Nota.md".to_string()));
+    }
+
+    #[test]
+    fn test_re_resolve_honors_case_sensitive_precedence() {
+        // Spec 16, Achado A: o re_resolve_all_links tinha uma segunda implementação SÓ
+        // case-insensitive — num filesystem case-sensitive (Linux) com Nota.md + nota.md,
+        // qualquer batch do watcher flipava [[nota]] (exato → nota.md) para Nota.md
+        // (tie-break lex: 'N' < 'n'). O F4 unifica na semântica exato-primeiro do §33.
+        // Teste puro-DB: não cria arquivos (NTFS não permite Nota.md e nota.md juntos).
+        let mut conn = create_test_db();
+        let vault = "/home/user/vault";
+
+        let tx = conn.transaction().unwrap();
+        for path in [
+            "/home/user/vault/Nota.md",
+            "/home/user/vault/nota.md",
+            "/home/user/vault/fonte.md",
+        ] {
+            tx.execute(
+                "INSERT INTO notes (path, title, last_modified) VALUES (?, ?, 1)",
+                [path, "titulo"],
+            ).unwrap();
+        }
+        tx.execute(
+            "INSERT INTO links (source_path, target_name, target_path) VALUES ('/home/user/vault/fonte.md', 'nota', NULL)",
+            [],
+        ).unwrap();
+
+        crate::commands::index_db::re_resolve_all_links(&tx, vault).unwrap();
+        tx.commit().unwrap();
+
+        let resolved: String = conn.query_row(
+            "SELECT target_path FROM links WHERE source_path = '/home/user/vault/fonte.md' AND target_name = 'nota'",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+
+        // Match exato case-sensitive tem precedência (regra do §33) — antes do fix vinha Nota.md
+        assert_eq!(resolved, "/home/user/vault/nota.md");
     }
 }
 
