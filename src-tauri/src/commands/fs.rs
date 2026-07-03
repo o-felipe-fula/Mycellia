@@ -572,7 +572,17 @@ pub struct VaultChange {
 
 fn handle_watcher_events<R: tauri::Runtime>(app: &tauri::AppHandle<R>, vault_path: &str, events: Vec<DebouncedEvent>) -> Result<(), String> {
     use std::collections::HashSet;
-    
+
+    // BUG-02: se a RAIZ do vault sumiu (renomeada/movida/excluída com o app aberto), o batch
+    // inteiro é intocável — os eventos carregam paths velhos que ainda são chaves vivas no
+    // índice, e processá-los erodiria o índice com falsos deletes (os arquivos continuam
+    // intactos no disco, só a raiz mudou de nome). Aborta sem tocar o índice e avisa o front
+    // (vira notificação persistente; um batch válido subsequente limpa — self-heal).
+    if !Path::new(vault_path).exists() {
+        let _ = app.emit("vault-root-lost", vault_path);
+        return Ok(());
+    }
+
     let mut paths_to_delete = HashSet::new();
     let mut paths_to_index = HashSet::new();
     
@@ -986,6 +996,78 @@ mod tests {
         );
 
         let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_watcher_batch_aborted_when_vault_root_lost() {
+        // BUG-02: raiz do vault renomeada/movida/excluída com o app aberto → o batch do watcher
+        // carrega paths velhos que ainda são chaves vivas no índice; processá-lo apagaria notas
+        // do índice com os arquivos intactos no disco (só a raiz mudou de nome). O guard aborta
+        // o batch inteiro, não toca o índice e emite "vault-root-lost" pro front.
+        let temp_root = env::temp_dir().join("mycellia_test_root_lost");
+        let renamed_root = env::temp_dir().join("mycellia_test_root_lost_RENOMEADA");
+        let _ = fs::remove_dir_all(&temp_root);
+        let _ = fs::remove_dir_all(&renamed_root);
+        fs::create_dir_all(&temp_root).unwrap();
+        let note_path = temp_root.join("nota.md");
+        fs::write(&note_path, "conteudo").unwrap();
+
+        let app = tauri::test::mock_builder()
+            .manage(crate::commands::index_db::DbState::default())
+            .manage(WatcherState::default())
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let handle = app.handle();
+
+        let db_state = handle.state::<crate::commands::index_db::DbState>();
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute("CREATE TABLE IF NOT EXISTS notes (path TEXT PRIMARY KEY, title TEXT NOT NULL, last_modified INTEGER NOT NULL);", []).unwrap();
+        conn.execute("CREATE TABLE IF NOT EXISTS links (source_path TEXT NOT NULL, target_name TEXT NOT NULL, target_path TEXT, PRIMARY KEY (source_path, target_name), FOREIGN KEY (source_path) REFERENCES notes (path) ON DELETE CASCADE);", []).unwrap();
+        conn.execute("CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(path, title, content, tags, properties);", []).unwrap();
+
+        let canon_note = canonicalize_path(&note_path.to_string_lossy());
+        let canon_vault = canonicalize_path(&temp_root.to_string_lossy());
+        conn.execute(
+            "INSERT INTO notes (path, title, last_modified) VALUES (?, ?, 0)",
+            [canon_note.clone(), "nota".to_string()],
+        ).unwrap();
+        *db_state.conn.lock().unwrap() = Some(conn);
+
+        // Captura o que chega no front
+        let root_lost = std::sync::Arc::new(Mutex::new(Vec::<String>::new()));
+        let root_lost_clone = root_lost.clone();
+        handle.listen_any("vault-root-lost", move |event| {
+            root_lost_clone.lock().unwrap().push(event.payload().to_string());
+        });
+        let vault_changes = std::sync::Arc::new(Mutex::new(0usize));
+        let vault_changes_clone = vault_changes.clone();
+        handle.listen_any("vault-change", move |_| {
+            *vault_changes_clone.lock().unwrap() += 1;
+        });
+
+        // A raiz é renomeada com o "app aberto" (a nota continua intacta, sob a raiz nova)
+        fs::rename(&temp_root, &renamed_root).unwrap();
+
+        // Batch sintético com o path VELHO da nota — como o watcher entregaria pós-rename
+        let stale_event = DebouncedEvent {
+            event: notify::Event::new(notify::EventKind::Remove(notify::event::RemoveKind::File))
+                .add_path(PathBuf::from(&canon_note)),
+            time: Instant::now(),
+        };
+        handle_watcher_events(handle, &canon_vault, vec![stale_event]).unwrap();
+
+        // 1. Índice INTOCADO — sem falso delete (era a erosão do BUG-02)
+        let db_state = handle.state::<crate::commands::index_db::DbState>();
+        let count: i64 = db_state.conn.lock().unwrap().as_ref().unwrap()
+            .query_row("SELECT COUNT(*) FROM notes", [], |row| row.get(0)).unwrap();
+        assert_eq!(count, 1, "batch com raiz perdida não pode erodir o índice");
+
+        // 2. Front avisado 1x, e nenhum vault-change processado
+        assert_eq!(root_lost.lock().unwrap().len(), 1, "deve emitir vault-root-lost");
+        assert!(root_lost.lock().unwrap()[0].contains("mycellia_test_root_lost"));
+        assert_eq!(*vault_changes.lock().unwrap(), 0);
+
+        let _ = fs::remove_dir_all(&renamed_root);
     }
 
     #[test]
