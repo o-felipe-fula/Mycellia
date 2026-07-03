@@ -7,8 +7,8 @@ import { EditorView, Decoration, type DecorationSet } from '@codemirror/view';
 import { syntaxTree, ensureSyntaxTree } from '@codemirror/language';
 import type { CompletionContext, CompletionResult } from '@codemirror/autocomplete';
 import type { SyntaxNode } from '@lezer/common';
-import { useAppStore, FileNode } from '../store/appStore';
-import { themeChangeEffect, type DecSpec } from './shared';
+import { useAppStore } from '../store/appStore';
+import { themeChangeEffect, fileTreeChangedEffect, type DecSpec } from './shared';
 import { EmptyWidget, TableWidget, BulletWidget, TaskMarkerWidget, ImageWidget } from './widgets';
 import { getFencedCodeContent, resolveImagePath, isInsideCodeBlock, isRangeInCode, hasChildTaskMarker } from './utils';
 import { MermaidWidget } from './mermaid';
@@ -331,12 +331,12 @@ export const livePreviewExtension = () => {
   });
 };
 
-export const imagePreviewExtension = (
-  activeNotePath: string | null,
-  vaultPath: string | null,
-  fileTree: FileNode | null,
-) => {
+export const imagePreviewExtension = () => {
   const buildDecorations = (state: EditorState): DecorationSet => {
+    // BUG-04 (fix): lê o estado VIVO do store a cada rebuild. Antes capturava
+    // fileTree/paths do momento em que o editor montou (deps [activeTab]) e ficava
+    // cego a imagens novas (ex.: recém-coladas) até reabrir a nota.
+    const { activeTab: activeNotePath, currentVault: vaultPath, fileTree } = useAppStore.getState();
     const specs: DecSpec[] = [];
     const selection = state.selection.main;
     const activeLineNumber = state.doc.lineAt(selection.head).number;
@@ -414,7 +414,9 @@ export const imagePreviewExtension = (
     },
     update(decorations, tr) {
       decorations = decorations.map(tr.changes);
-      if (tr.docChanged || !tr.state.selection.eq(tr.startState.selection)) {
+      // BUG-04: o MarkdownEditor dispara fileTreeChangedEffect quando a árvore muda
+      const treeChanged = tr.effects.some(e => e.is(fileTreeChangedEffect));
+      if (tr.docChanged || !tr.state.selection.eq(tr.startState.selection) || treeChanged) {
         return buildDecorations(tr.state);
       }
       return decorations;

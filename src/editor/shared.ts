@@ -7,6 +7,11 @@ import type { Decoration } from '@codemirror/view';
 
 export const themeChangeEffect = StateEffect.define<void>();
 
+// BUG-04 (fix): disparado pelo MarkdownEditor quando o fileTree do vault muda; o
+// imagePreviewExtension escuta e re-resolve — imagem recém-colada/criada aparece
+// sem precisar reabrir a nota.
+export const fileTreeChangedEffect = StateEffect.define<void>();
+
 export interface DecSpec {
   from: number;
   to: number;

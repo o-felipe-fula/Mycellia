@@ -19,6 +19,7 @@ vi.mock('@tauri-apps/api/core', () => ({
     }
     return Promise.resolve();
   }),
+  convertFileSrc: vi.fn().mockImplementation((path: string) => `mock-asset://${path}`),
 }));
 
 Object.defineProperty(window, '__TAURI_INTERNALS__', {

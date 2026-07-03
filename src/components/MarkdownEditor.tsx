@@ -10,6 +10,7 @@ import { syntaxTree, syntaxHighlighting, ensureSyntaxTree } from '@codemirror/la
 import { history, historyKeymap, standardKeymap } from '@codemirror/commands';
 import { autocompletion } from '@codemirror/autocomplete';
 import { useAppStore } from '../store/appStore';
+import { fileTreeChangedEffect } from '../editor/shared';
 import { mycelliaTheme, mycelliaHighlightStyle } from '../editor/theme';
 import { mermaidThemePlugin } from '../editor/mermaid';
 import {
@@ -28,7 +29,7 @@ interface MarkdownEditorProps {
 export default function MarkdownEditor({ content, onChange }: MarkdownEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
-  const { activeTab, currentVault, fileTree, renameItem } = useAppStore();
+  const { activeTab, fileTree, renameItem } = useAppStore();
 
   const filename = activeTab ? activeTab.split('\\').pop()?.split('/').pop()?.replace('.md', '') || '' : '';
   const [title, setTitle] = useState(filename);
@@ -119,7 +120,7 @@ export default function MarkdownEditor({ content, onChange }: MarkdownEditorProp
         syntaxHighlighting(mycelliaHighlightStyle),
         livePreviewExtension(),
         mermaidThemePlugin,
-        imagePreviewExtension(activeTab, currentVault, fileTree),
+        imagePreviewExtension(),
         wikiLinkExtension(),
         autocompletion({ override: [wikiLinkAutocomplete] }),
         EditorView.lineWrapping,
@@ -258,6 +259,12 @@ export default function MarkdownEditor({ content, onChange }: MarkdownEditorProp
       });
     }
   }, [content]);
+
+  // BUG-04 (fix): avisa a extensão de imagens quando a árvore do vault muda — imagem
+  // recém-colada/criada aparece sem precisar reabrir a nota
+  useEffect(() => {
+    viewRef.current?.dispatch({ effects: fileTreeChangedEffect.of() });
+  }, [fileTree]);
 
   return (
     <div className="flex flex-col h-full w-full overflow-hidden">
