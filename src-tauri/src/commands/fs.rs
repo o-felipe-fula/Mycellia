@@ -41,10 +41,26 @@ fn compute_hash(content: &str) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-fn canonicalize_path(path: &str) -> String {
+pub(crate) fn canonicalize_path(path: &str) -> String {
     #[cfg(target_os = "windows")]
     {
-        path.to_string()
+        // F4.2 (Spec 16, Achado C): deixou de ser passthrough. dunce::canonicalize resolve o
+        // casing real do disco e o drive letter SEM devolver o prefixo UNC `\\?\` (que
+        // contaminaria as chaves do DB e a UI) — mantém o prefixo só quando o path é longo
+        // demais para a forma legada. Path inexistente (ex.: evento de delete do watcher):
+        // canonicaliza o pai (que normalmente ainda existe) e re-anexa o nome do arquivo —
+        // mesmo fallback do branch Unix.
+        let p = Path::new(path);
+        if let Ok(canon) = dunce::canonicalize(p) {
+            canon.to_string_lossy().into_owned()
+        } else {
+            if let (Some(parent), Some(file_name)) = (p.parent(), p.file_name()) {
+                if let Ok(canon_parent) = dunce::canonicalize(parent) {
+                    return canon_parent.join(file_name).to_string_lossy().into_owned();
+                }
+            }
+            path.to_string()
+        }
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -157,6 +173,9 @@ pub fn load_vault_tree_internal(vault_path: String) -> Result<FileNode, String> 
 // Carregar toda a árvore com telemetria e concessão dinâmica do escopo do asset protocol
 #[tauri::command]
 pub fn load_vault_tree(app: tauri::AppHandle, vault_path: String) -> Result<FileNode, String> {
+    // F4.2: root canônico na entrada — os paths de TODOS os filhos (e portanto as chaves do
+    // DB e as strings que o front devolve) herdam a forma do root usado no walk
+    let vault_path = canonicalize_path(&vault_path);
     let root_path = Path::new(&vault_path);
     if root_path.exists() && root_path.is_dir() {
         // Conceder escopo do asset protocol dinamicamente ao vault e subdiretórios
@@ -929,6 +948,45 @@ mod tests {
     use std::env;
     use std::fs;
     use tauri::Listener;
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn test_canonicalize_path_windows_consistency() {
+        // F4.2 (Spec 16, Achado C): o branch Windows deixou de ser passthrough — casing
+        // divergente do disco tem que convergir para UMA forma canônica (senão as chaves do
+        // DB e os eventos do watcher desalinham e strip_prefix do vault falha em silêncio).
+        let temp_dir = env::temp_dir().join("MycelliaCanonTest");
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
+        let file_path = temp_dir.join("Nota.md");
+        fs::write(&file_path, "x").unwrap();
+
+        // 1. Variações de casing do MESMO arquivo convergem para a mesma string canônica
+        let canon_real = canonicalize_path(&file_path.to_string_lossy());
+        let variant_upper = file_path.to_string_lossy().to_uppercase();
+        let variant_lower = file_path.to_string_lossy().to_lowercase();
+        assert_eq!(canon_real, canonicalize_path(&variant_upper));
+        assert_eq!(canon_real, canonicalize_path(&variant_lower));
+
+        // 2. Sem prefixo UNC `\\?\` (contaminaria chaves do DB e UI)
+        assert!(!canon_real.starts_with("\\\\?\\"), "prefixo UNC vazou: {}", canon_real);
+
+        // 3. Idempotência: canonicalizar o canônico é no-op
+        assert_eq!(canonicalize_path(&canon_real), canon_real);
+
+        // 4. Path inexistente (ex.: delete do watcher): canonicaliza o PAI e preserva o nome —
+        //    o fantasma fica no mesmo dir canônico do arquivo real
+        let ghost = temp_dir.join("nao_existe.md");
+        let canon_ghost = canonicalize_path(&ghost.to_string_lossy());
+        assert!(canon_ghost.ends_with("nao_existe.md"));
+        assert_eq!(
+            Path::new(&canon_ghost).parent(),
+            Path::new(&canon_real).parent(),
+            "pai do path inexistente deve ser o mesmo pai canônico do arquivo real"
+        );
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
 
     #[test]
     fn test_read_write_file_atomic() {

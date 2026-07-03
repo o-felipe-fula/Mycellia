@@ -484,6 +484,9 @@ fn index_vault(app: &AppHandle, vault_path: &str) -> Result<(), String> {
 
 // Inicia a indexação assíncrona em background
 pub fn start_indexing(app: AppHandle, vault_path: String) {
+    // F4.2: root canônico na entrada (cobre start_indexing_command e rebuild_index) — as
+    // chaves do DB derivam do walk deste root e precisam bater com watcher/move/load_vault_tree
+    let vault_path = crate::commands::fs::canonicalize_path(&vault_path);
     let app_clone = app.clone();
     std::thread::spawn(move || {
         let state = app_clone.state::<DbState>();
