@@ -1,11 +1,10 @@
+// Shell do workspace (F3 — Spec 17): init effect (onCloseRequested→flushPendingSave,
+// Incidente #2 + listeners Rust) e o layout de 3 zonas. Welcome/ConflictModal/ErrorBanner
+// e os hooks de resize/atalhos vivem em módulos próprios (extraídos intactos).
 import React, { useEffect } from 'react';
 import { useAppStore, setupIndexingListener } from './store/appStore';
-import { open as openDirectory } from '@tauri-apps/plugin-dialog';
 import {
   FolderOpen,
-  PlusCircle,
-  Sun,
-  Moon,
   FileText,
   X,
   LogOut,
@@ -26,15 +25,16 @@ import ActivityRibbon from './components/ActivityRibbon';
 import { SearchResultsPanel } from './components/SearchResultsPanel';
 import { serializeRawNote } from './utils/markdown';
 import StatusBar from './components/StatusBar';
+import WelcomeScreen from './components/WelcomeScreen';
+import ConflictModal from './components/ConflictModal';
+import GlobalErrorBanner from './components/GlobalErrorBanner';
+import { usePanelResize } from './hooks/usePanelResize';
+import { useGlobalShortcuts } from './hooks/useGlobalShortcuts';
 
 export default function App() {
   const {
-    theme,
-    toggleTheme,
     initApp,
     currentVault,
-    recentVaults,
-    loadVault,
     closeVault,
     fileTree,
     sidebarWidth,
@@ -45,8 +45,6 @@ export default function App() {
     createItem,
     activeNoteContent,
     updateActiveNoteContent,
-    conflictModal,
-    resolveConflict,
     setupVaultChangeListener,
     // Layout variables
     leftPanelMode,
@@ -64,12 +62,7 @@ export default function App() {
     activeNoteBaseSerialized,
     activeNoteBacklinks,
     swapViews,
-    globalError,
-    setGlobalError,
     platform,
-    setLeftPanelMode,
-    setCenterView,
-    loadGraphData,
   } = useAppStore();
 
   const isMac = platform === 'darwin' || platform === 'macos';
@@ -101,41 +94,7 @@ export default function App() {
     ].filter((tab) => tab.show);
   }, [centerView, activeTab]);
 
-  // Resize handler da barra lateral esquerda (ajustando offset da ribbon de 48px)
-  const handleMouseDown = (e: React.MouseEvent) => {
-    e.preventDefault();
-    const handleMouseMove = (moveEvent: MouseEvent) => {
-      const newWidth = Math.max(200, Math.min(420, moveEvent.clientX - 48));
-      useAppStore.setState({ sidebarWidth: newWidth });
-    };
-    const handleMouseUp = () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-    };
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-  };
-
-  // Resize handler da barra lateral direita
-  const handleRightMouseDown = (e: React.MouseEvent) => {
-    e.preventDefault();
-    const startWidth = useAppStore.getState().rightPanelWidth;
-    const startX = e.clientX;
-
-    const handleMouseMove = (moveEvent: MouseEvent) => {
-      const deltaX = moveEvent.clientX - startX;
-      const newWidth = Math.max(240, Math.min(480, startWidth - deltaX));
-      useAppStore.setState({ rightPanelWidth: newWidth });
-    };
-
-    const handleMouseUp = () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-    };
-
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-  };
+  const { handleMouseDown, handleRightMouseDown } = usePanelResize();
 
   const handleCreateNewFile = React.useCallback(async () => {
     if (!currentVault) return;
@@ -195,120 +154,7 @@ export default function App() {
   }, [initApp, setupVaultChangeListener]);
 
   // Atalhos de Teclado Globais (A11y & Modificadores - DS §11)
-  useEffect(() => {
-    const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      // Se estiver digitando em um input/textarea, não disparar atalhos globais de criação/navegação
-      const target = e.target as HTMLElement;
-      if (
-        target.tagName === 'INPUT' ||
-        target.tagName === 'TEXTAREA' ||
-        target.isContentEditable ||
-        target.closest('.cm-editor')
-      ) {
-        return;
-      }
-
-      const isMacPlatform = platform === 'darwin' || platform === 'macos';
-      const isMod = isMacPlatform ? e.metaKey : e.ctrlKey;
-
-      // Nova Nota: Mod + N
-      if (isMod && e.key.toLowerCase() === 'n' && !e.shiftKey && !e.altKey) {
-        e.preventDefault();
-        handleCreateNewFile();
-      }
-
-      // Busca Global: Mod + Shift + F
-      if (isMod && e.shiftKey && e.key.toLowerCase() === 'f') {
-        e.preventDefault();
-        if (isLeftPanelOpen && leftPanelMode === 'search') {
-          toggleLeftPanel();
-        } else {
-          setLeftPanelMode('search');
-        }
-      }
-
-      // Navegador de Arquivos: Mod + Shift + E
-      if (isMod && e.shiftKey && e.key.toLowerCase() === 'e') {
-        e.preventDefault();
-        if (isLeftPanelOpen && leftPanelMode === 'files') {
-          toggleLeftPanel();
-        } else {
-          setLeftPanelMode('files');
-        }
-      }
-
-      // Visualizar/Toggle Grafo: Mod + G
-      if (isMod && e.key.toLowerCase() === 'g' && !e.shiftKey && !e.altKey) {
-        e.preventDefault();
-        if (centerView === 'graph' && activeTab) {
-          setCenterView('editor');
-        } else {
-          setCenterView('graph');
-        }
-      }
-
-      // Recalcular Grafo: Mod + Shift + R
-      if (isMod && e.shiftKey && e.key.toLowerCase() === 'r') {
-        e.preventDefault();
-        if (centerView === 'graph') {
-          loadGraphData();
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleGlobalKeyDown);
-    return () => {
-      window.removeEventListener('keydown', handleGlobalKeyDown);
-    };
-  }, [
-    platform,
-    currentVault,
-    isLeftPanelOpen,
-    leftPanelMode,
-    centerView,
-    activeTab,
-    toggleLeftPanel,
-    setLeftPanelMode,
-    setCenterView,
-    loadGraphData,
-    handleCreateNewFile,
-  ]);
-
-  const handleOpenVault = async () => {
-    try {
-      const selected = await openDirectory({
-        directory: true,
-        multiple: false,
-        title: 'Selecionar Pasta do Vault',
-      });
-      if (selected && typeof selected === 'string') {
-        await loadVault(selected);
-      }
-    } catch (err) {
-      console.error('Failed to open vault:', err);
-      alert('Falha ao abrir o diretório do vault.');
-    }
-  };
-
-  const handleCreateVault = async () => {
-    try {
-      const selected = await openDirectory({
-        directory: true,
-        multiple: false,
-        title: 'Escolha o diretório para criar o novo Vault',
-      });
-      if (selected && typeof selected === 'string') {
-        await loadVault(selected);
-      }
-    } catch (err) {
-      console.error('Failed to create vault:', err);
-      alert('Falha ao selecionar diretório para criar o vault.');
-    }
-  };
-
-
-
-
+  useGlobalShortcuts(handleCreateNewFile);
 
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden transition-colors duration-200 select-none bg-[var(--substrate-void)] text-[var(--text-primary)]">
@@ -319,105 +165,7 @@ export default function App() {
       <div className="flex-1 flex overflow-hidden relative w-full">
 
         {!currentVault ? (
-          /* Welcome Screen */
-          <main className="flex-1 flex flex-col justify-center items-center p-6 relative overflow-hidden">
-            {theme === 'dark' && (
-              <div className="absolute w-[500px] h-[500px] rounded-full bg-[var(--accent-muted)] filter blur-[100px] -z-10 pointer-events-none opacity-40 translate-y-[-50px]" />
-            )}
-            <div className="max-w-2xl w-full flex flex-col items-center text-center space-y-8">
-              <div className="space-y-3">
-                <div className="flex justify-center mb-2">
-                  <button
-                    onClick={toggleTheme}
-                    className="p-2 rounded-lg hover:bg-[var(--substrate-raised)] transition-colors text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
-                    aria-label="Alternar tema"
-                  >
-                    {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-                  </button>
-                </div>
-                <h1 className="text-5xl font-display font-black tracking-tight text-[var(--text-primary)]">
-                  Bem-vindo ao{' '}
-                  <span className="bg-gradient-to-r from-[var(--accent)] to-[var(--tag)] bg-clip-text text-transparent">
-                    Mycellia
-                  </span>
-                </h1>
-                <p className="text-[var(--text-secondary)] text-lg max-w-md mx-auto">
-                  Um editor de conhecimento local-first, offline e com conexões em grafo.
-                </p>
-              </div>
-
-              {/* Action Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full mt-4">
-                <button
-                  onClick={handleOpenVault}
-                  className="glass-card p-6 rounded-xl flex flex-col items-center justify-center text-center gap-4 hover:scale-[1.01] cursor-pointer"
-                >
-                  <div className="p-4 rounded-full bg-[var(--substrate-surface)] text-[var(--accent-dim)]">
-                    <FolderOpen className="w-8 h-8" />
-                  </div>
-                  <div>
-                    <h3 className="font-display font-bold text-base text-[var(--text-primary)]">
-                      Abrir pasta existente
-                    </h3>
-                    <p className="text-xs text-[var(--text-muted)] mt-1">
-                      Abra seu vault do Obsidian ou pasta local com notas Markdown
-                    </p>
-                  </div>
-                </button>
-
-                <button
-                  onClick={handleCreateVault}
-                  className="glass-card p-6 rounded-xl flex flex-col items-center justify-center text-center gap-4 hover:scale-[1.01] cursor-pointer"
-                >
-                  <div className="p-4 rounded-full bg-[var(--substrate-surface)] text-[var(--accent)]">
-                    <PlusCircle className="w-8 h-8" />
-                  </div>
-                  <div>
-                    <h3 className="font-display font-bold text-base text-[var(--text-primary)]">
-                      Criar novo Vault
-                    </h3>
-                    <p className="text-xs text-[var(--text-muted)] mt-1">
-                      Crie uma nova pasta vazia e comece a tecer sua teia de conhecimento
-                    </p>
-                  </div>
-                </button>
-              </div>
-
-              {/* Recent Vaults */}
-              <div className="w-full max-w-md pt-6 border-t border-[var(--border-default)]">
-                <h4 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">
-                  Vaults Recentes
-                </h4>
-                {recentVaults.length === 0 ? (
-                  <div className="text-xs text-[var(--text-muted)] italic">
-                    Nenhum vault aberto recentemente.
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {recentVaults.map((vault) => (
-                      <button
-                        key={vault}
-                        onClick={() => loadVault(vault)}
-                        className="w-full flex items-center justify-between p-2.5 rounded-lg bg-[var(--substrate-raised)] hover:bg-[var(--substrate-surface)] border border-[var(--border-default)] text-left transition-colors cursor-pointer"
-                      >
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <FileText className="w-4 h-4 text-[var(--tag)] flex-shrink-0" />
-                          <div className="min-w-0">
-                            <div className="text-xs font-medium text-[var(--text-primary)] truncate">
-                              {vault.split('\\').pop() || vault.split('/').pop()}
-                            </div>
-                            <div className="text-[10px] text-[var(--text-muted)] truncate font-mono mt-0.5">
-                              {vault}
-                            </div>
-                          </div>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          </main>
+          <WelcomeScreen />
         ) : (
           /* 3-Zone Workspace Layout */
           <>
@@ -727,7 +475,7 @@ export default function App() {
               </div>
             ) : (
               /* Right Rail when collapsed (Reopening Affordance) */
-              <div 
+              <div
                 className="w-10 h-full flex flex-col items-center py-4 border-l border-[var(--border-subtle)] bg-[var(--substrate-surface)]/90 backdrop-blur-md z-30 flex-shrink-0 animate-in slide-in-from-right duration-[var(--duration-base)]"
                 data-testid="right-rail"
               >
@@ -754,58 +502,8 @@ export default function App() {
         )}
       </div>
 
-      {/* Conflict Modal */}
-      {conflictModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md animate-in fade-in duration-200">
-          <div className="glass-card max-w-md w-full p-6 rounded-2xl border border-[var(--border-default)] flex flex-col gap-4 shadow-2xl animate-in zoom-in-95 duration-200">
-            <h2 className="text-lg font-display font-bold text-[var(--text-primary)]">
-              {conflictModal.diskContent === null ? 'Nota excluída no disco' : 'Conflito de Modificação'}
-            </h2>
-            <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-              {conflictModal.diskContent === null
-                ? `A nota "${conflictModal.path.split('\\').pop() || conflictModal.path.split('/').pop()}" foi excluída fora do editor, mas você possui alterações locais não salvas.`
-                : `A nota "${conflictModal.path.split('\\').pop() || conflictModal.path.split('/').pop()}" foi modificada externamente no disco e você também possui alterações locais.`}
-            </p>
-            <div className="flex items-center justify-end gap-3 mt-2">
-              <button
-                onClick={() => resolveConflict('load-disk')}
-                className="px-4 py-2 text-xs rounded-lg font-medium cursor-pointer transition-all border border-[var(--warning)] bg-[var(--warning-muted)] hover:bg-[var(--warning)] text-[var(--warning)] hover:text-[var(--accent-contrast)]"
-              >
-                {conflictModal.diskContent === null ? 'Descartar e Fechar' : 'Carregar versão do disco'}
-              </button>
-              <button
-                onClick={() => resolveConflict('keep-local')}
-                className="px-4 py-2 text-xs rounded-lg font-medium cursor-pointer transition-all border border-[var(--border-default)] bg-[var(--substrate-raised)] hover:bg-[var(--substrate-surface)] text-[var(--text-primary)]"
-              >
-                {conflictModal.diskContent === null ? 'Salvar e Recriar' : 'Manter minhas alterações'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      {/* Global Error Banner */}
-      {globalError && (
-        <div className="fixed bottom-10 right-6 z-50 animate-in fade-in slide-in-from-bottom duration-200">
-          <div className="glass-card max-w-sm p-4 rounded-xl border border-[var(--danger)]/30 bg-[var(--substrate-overlay)]/95 shadow-2xl flex items-start gap-3">
-            <span className="text-xl shrink-0 mt-0.5" role="img" aria-label="Erro">⚠️</span>
-            <div className="flex-1 min-w-0">
-              <h4 className="text-xs font-bold text-[var(--danger)] uppercase tracking-wider mb-1 font-sans">
-                Erro de Sistema
-              </h4>
-              <p className="text-xs text-[var(--text-primary)] font-mono break-all leading-relaxed whitespace-pre-wrap">
-                {globalError}
-              </p>
-            </div>
-            <button
-              onClick={() => setGlobalError(null)}
-              className="p-1 rounded hover:bg-[var(--substrate-raised)] text-[var(--text-muted)] hover:text-[var(--danger)] transition-colors cursor-pointer shrink-0"
-              title="Fechar Notificação"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-      )}
+      <ConflictModal />
+      <GlobalErrorBanner />
       <ToastContainer />
       {currentVault && <StatusBar />}
     </div>
