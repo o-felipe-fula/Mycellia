@@ -384,6 +384,12 @@ fn index_vault(app: &AppHandle, vault_path: &str) -> Result<(), String> {
         .cloned()
         .collect();
 
+    // F4: delta desta indexação (novos/modificados + deletados) para o re-resolve incremental
+    let mut changed_paths: std::collections::HashSet<String> = to_delete.iter().cloned().collect();
+    for (file_path, _) in &to_update {
+        changed_paths.insert(file_path.to_string_lossy().into_owned());
+    }
+
     // 4. Executa transação em lote (Fast Batch)
     let tx = conn.transaction().map_err(|e| format!("Falha ao abrir transação: {}", e))?;
 
@@ -465,10 +471,11 @@ fn index_vault(app: &AppHandle, vault_path: &str) -> Result<(), String> {
         ).map_err(|e| e.to_string())?;
     }
 
-    // F4: resolve os links no fim da transação. Além dos arquivos recém-indexados (NULL),
-    // isto re-resolve links de arquivos NÃO-modificados afetados por notas criadas/deletadas
-    // com o app fechado — que antes ficavam com target_path velho (Spec 16, Achado B).
-    re_resolve_all_links(&tx, vault_path).map_err(|e| e.to_string())?;
+    // F4: resolve os links no fim da transação, incremental sobre o delta. Além dos arquivos
+    // recém-indexados (NULL), isto re-resolve links de arquivos NÃO-modificados afetados por
+    // notas criadas/deletadas com o app fechado — que antes ficavam com target_path velho
+    // (Spec 16, Achado B). No primeiro index (DB vazio) o delta é o vault inteiro == full.
+    re_resolve_links_incremental(&tx, vault_path, &changed_paths).map_err(|e| e.to_string())?;
 
     tx.commit().map_err(|e| format!("Erro no commit da transação: {}", e))?;
 
@@ -716,17 +723,63 @@ pub fn get_backlinks(app: AppHandle, target_path: String) -> Result<Vec<Backlink
     Ok(backlinks)
 }
 
+// F4: a resolução FULL (sem filtro de delta). Depois do F4 todos os chamadores de produção
+// passam delta (re_resolve_links_incremental); a full permanece como referência dos testes
+// (o teste de propriedade assere incremental == full == oráculo).
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn re_resolve_all_links(tx: &rusqlite::Transaction, vault_path: &str) -> Result<(), rusqlite::Error> {
+    re_resolve_links(tx, vault_path, None)
+}
+
+// F4: re-resolve só os links AFETADOS por um delta de paths (criados/deletados/movidos/
+// reindexados), em vez de todos os links do vault a cada batch. Um link só pode ganhar ou
+// perder um candidato P se seu target_name bater (case-insensitive) com o basename ou o
+// caminho relativo de P — match exato implica match ci, então o filtro por chave ci é um
+// superconjunto seguro. Links cujo source está no delta entram sempre (acabaram de ser
+// re-inseridos com target_path = NULL). Equivalência incremental == full == oráculo
+// garantida pelo teste de propriedade (test_property_incremental_equals_full_resolution).
+pub fn re_resolve_links_incremental(
+    tx: &rusqlite::Transaction,
+    vault_path: &str,
+    changed_paths: &std::collections::HashSet<String>,
+) -> Result<(), rusqlite::Error> {
+    re_resolve_links(tx, vault_path, Some(changed_paths))
+}
+
+fn re_resolve_links(
+    tx: &rusqlite::Transaction,
+    vault_path: &str,
+    changed_paths: Option<&std::collections::HashSet<String>>,
+) -> Result<(), rusqlite::Error> {
     let start = std::time::Instant::now();
-    
+
     let mut stmt = tx.prepare("SELECT path FROM notes")?;
     let all_paths_vec: Vec<String> = stmt
         .query_map([], |row| row.get::<_, String>(0))?
         .collect::<Result<Vec<_>, _>>()?;
-    
+
     // F4: uma única semântica de resolução no app inteiro (a mesma da indexação inicial:
     // exato-primeiro). A antiga implementação só case-insensitive daqui era o Achado A do Spec 16.
     let resolver = LinkResolver::build(&all_paths_vec, vault_path);
+
+    // Chaves (ci) afetadas pelo delta: basename e caminho relativo de cada path mudado —
+    // derivadas EXATAMENTE como as chaves dos mapas do resolver, senão o filtro fura.
+    let affected_keys: Option<std::collections::HashSet<String>> = changed_paths.map(|changed| {
+        let mut keys = std::collections::HashSet::new();
+        for path in changed {
+            let p_path = Path::new(path);
+            let file_name = p_path.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
+            let basename = file_name.strip_suffix(".md").unwrap_or(&file_name).to_string();
+            keys.insert(basename);
+
+            if let Ok(rel) = p_path.strip_prefix(vault_path) {
+                let rel_str = rel.to_string_lossy().replace('\\', "/").to_lowercase();
+                let rel_basename = rel_str.strip_suffix(".md").unwrap_or(&rel_str).to_string();
+                keys.insert(rel_basename);
+            }
+        }
+        keys
+    });
 
     let mut stmt = tx.prepare("SELECT source_path, target_name, target_path FROM links")?;
     let links: Vec<(String, String, Option<String>)> = stmt
@@ -736,8 +789,20 @@ pub fn re_resolve_all_links(tx: &rusqlite::Transaction, vault_path: &str) -> Res
     let mut update_stmt = tx.prepare("UPDATE links SET target_path = ? WHERE source_path = ? AND target_name = ?")?;
     let mut update_count = 0;
     let total_links = links.len();
+    let mut resolved_count = 0;
 
     for (source_path, target_name, current_target_path) in links {
+        let is_affected = match (changed_paths, &affected_keys) {
+            (Some(changed), Some(keys)) => {
+                changed.contains(&source_path) || keys.contains(&target_name.to_lowercase())
+            }
+            _ => true,
+        };
+        if !is_affected {
+            continue;
+        }
+        resolved_count += 1;
+
         let resolved = resolver.resolve(&target_name);
 
         if resolved != current_target_path {
@@ -747,8 +812,8 @@ pub fn re_resolve_all_links(tx: &rusqlite::Transaction, vault_path: &str) -> Res
     }
 
     println!(
-        "re_resolve_all_links performance check: processed {} links, updated {} target_paths in {:?}",
-        total_links, update_count, start.elapsed()
+        "re_resolve_links performance check: resolved {}/{} links, updated {} target_paths in {:?}",
+        resolved_count, total_links, update_count, start.elapsed()
     );
 
     Ok(())

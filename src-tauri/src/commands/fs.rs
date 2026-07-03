@@ -350,10 +350,15 @@ pub fn move_item<R: tauri::Runtime>(app: tauri::AppHandle<R>, path: String, new_
     let source_path = Path::new(&canon_src);
     let target_path = Path::new(&canon_dest);
 
+    // F4: acumula o delta de paths do move para o re-resolve incremental de links
+    let mut changed_paths: std::collections::HashSet<String> = std::collections::HashSet::new();
+    changed_paths.insert(canon_src.clone());
+    changed_paths.insert(canon_dest.clone());
+
     if target_path.is_file() {
         // Excluir a nota antiga
         crate::commands::index_db::delete_file_in_tx(&tx, &canon_src)?;
-        
+
         // Obter mtime e indexar nova nota
         let mtime = get_mtime(target_path);
         crate::commands::index_db::index_single_file_in_tx(&tx, target_path, mtime)?;
@@ -361,16 +366,18 @@ pub fn move_item<R: tauri::Runtime>(app: tauri::AppHandle<R>, path: String, new_
         // É um diretório. Recursivamente encontrar e reindexar todas as notas .md dele.
         let mut md_files = Vec::new();
         get_all_md_files(target_path, &mut md_files);
-        
+
         for md_file in md_files {
             // Computa o caminho antigo correspondente de forma resiliente para Windows (Correction #2)
             if let Ok(rel) = md_file.strip_prefix(target_path) {
                 let old_md_path = source_path.join(rel);
                 let old_md_str = old_md_path.to_string_lossy().into_owned();
-                
+                changed_paths.insert(old_md_str.clone());
+                changed_paths.insert(md_file.to_string_lossy().into_owned());
+
                 // Excluir a nota antiga
                 crate::commands::index_db::delete_file_in_tx(&tx, &old_md_str)?;
-                
+
                 // Indexar nova nota no índice
                 let mtime = get_mtime(&md_file);
                 crate::commands::index_db::index_single_file_in_tx(&tx, &md_file, mtime)?;
@@ -378,11 +385,11 @@ pub fn move_item<R: tauri::Runtime>(app: tauri::AppHandle<R>, path: String, new_
         }
     }
 
-    // Re-resolver links usando o caminho do vault também canonicalizado para manter integridade
+    // Re-resolver links (F4: incremental sobre o delta do move) com o vault canonicalizado
     let config = crate::commands::config::load_config(app.clone());
     if let Some(vault_path) = config.current_vault {
         let canon_vault = canonicalize_path(&vault_path);
-        crate::commands::index_db::re_resolve_all_links(&tx, &canon_vault).map_err(|e| e.to_string())?;
+        crate::commands::index_db::re_resolve_links_incremental(&tx, &canon_vault, &changed_paths).map_err(|e| e.to_string())?;
     }
 
     tx.commit().map_err(|e| e.to_string())?;
@@ -666,7 +673,11 @@ fn handle_watcher_events<R: tauri::Runtime>(app: &tauri::AppHandle<R>, vault_pat
     };
     
     let mut changes = Vec::new();
-    
+
+    // F4: delta do batch para o re-resolve incremental de links. União ANTES dos filtros de
+    // eco (superconjunto seguro: re-resolver um path de eco é idempotente — não muda nada).
+    let changed_paths: HashSet<String> = paths_to_delete.union(&paths_to_index).cloned().collect();
+
     // 2. Processar remoções e suprimir ecos de deleção transitória
     for path in paths_to_delete {
         if is_move_echo(&path) {
@@ -775,14 +786,14 @@ fn handle_watcher_events<R: tauri::Runtime>(app: &tauri::AppHandle<R>, vault_pat
         });
     }
     
-    crate::commands::index_db::re_resolve_all_links(&tx, vault_path).map_err(|e| e.to_string())?;
-    
+    crate::commands::index_db::re_resolve_links_incremental(&tx, vault_path, &changed_paths).map_err(|e| e.to_string())?;
+
     tx.commit().map_err(|e| e.to_string())?;
-    
+
     if !changes.is_empty() {
         app.emit("vault-change", changes).map_err(|e| e.to_string())?;
     }
-    
+
     Ok(())
 }
 

@@ -1244,5 +1244,273 @@ Link vazio (deve ser ignorado): [[]].
         // Match exato case-sensitive tem precedência (regra do §33) — antes do fix vinha Nota.md
         assert_eq!(resolved, "/home/user/vault/nota.md");
     }
+
+    #[test]
+    fn test_incremental_re_resolve_updates_unmodified_sources() {
+        // Spec 16, Achado B: nota deletada COM O APP FECHADO → o delta do index_vault agora
+        // re-resolve links de arquivos NÃO-modificados que apontavam pra ela. Pinado no nível
+        // da função: changed = {path deletado} atualiza link cujo source NÃO está no delta.
+        let mut conn = create_test_db();
+        let vault = "/vault";
+
+        let tx = conn.transaction().unwrap();
+        for path in ["/vault/fonte.md", "/vault/Plano.md", "/vault/a/Plano.md"] {
+            tx.execute(
+                "INSERT INTO notes (path, title, last_modified) VALUES (?, 't', 1)",
+                [path],
+            ).unwrap();
+        }
+        tx.execute(
+            "INSERT INTO links (source_path, target_name, target_path) VALUES ('/vault/fonte.md', 'Plano', NULL)",
+            [],
+        ).unwrap();
+        crate::commands::index_db::re_resolve_all_links(&tx, vault).unwrap();
+        tx.commit().unwrap();
+
+        // Dois candidatos exatos; tie-break de caminho curto → raiz
+        let resolved: String = conn.query_row(
+            "SELECT target_path FROM links WHERE source_path = '/vault/fonte.md'",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(resolved, "/vault/Plano.md");
+
+        // "Com o app fechado": Plano.md sumiu. Delta do boot = só o path deletado.
+        let tx = conn.transaction().unwrap();
+        tx.execute("DELETE FROM notes WHERE path = '/vault/Plano.md'", []).unwrap();
+        let changed: HashSet<String> = ["/vault/Plano.md".to_string()].into_iter().collect();
+        crate::commands::index_db::re_resolve_links_incremental(&tx, vault, &changed).unwrap();
+        tx.commit().unwrap();
+
+        let resolved_after: String = conn.query_row(
+            "SELECT target_path FROM links WHERE source_path = '/vault/fonte.md'",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(
+            resolved_after, "/vault/a/Plano.md",
+            "link de arquivo não-modificado deve re-resolver para o candidato sobrevivente"
+        );
+    }
+
+    // ---------- Teste de propriedade F4 (Spec 16, critério de aceite #1) ----------
+
+    // PRNG determinístico (xorshift64) — sem dependência externa; falha reproduz pelo seed
+    // impresso na mensagem do assert. Decisão D8 do Spec 16 (leveza consciente vs proptest).
+    struct XorShift64(u64);
+    impl XorShift64 {
+        fn next(&mut self) -> u64 {
+            let mut x = self.0;
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            self.0 = x;
+            x
+        }
+        fn range(&mut self, n: usize) -> usize {
+            (self.next() % n as u64) as usize
+        }
+    }
+
+    fn read_links_sorted(conn: &Connection) -> Vec<(String, String, Option<String>)> {
+        let mut stmt = conn
+            .prepare("SELECT source_path, target_name, target_path FROM links ORDER BY source_path, target_name")
+            .unwrap();
+        let rows = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .unwrap();
+        rows.flatten().collect()
+    }
+
+    #[test]
+    fn test_property_incremental_equals_full_resolution() {
+        // A propriedade: após CADA mutação (create/delete/edit/move) aplicada com o re-resolve
+        // INCREMENTAL, a tabela links é idêntica (a) ao oráculo ingênuo resolve_target_path
+        // avaliado por link sobre o estado vivo e (b) à resolução FULL rodada do zero.
+        // Puro-DB: permite colisões de case (Nota.md + nota.md) impossíveis de criar no NTFS,
+        // então o cenário roda idêntico nos 3 SOs.
+        use crate::commands::index_db::{
+            re_resolve_all_links, re_resolve_links_incremental, resolve_target_path,
+        };
+
+        const VAULT: &str = "/vault";
+        // Pools desenhados para colidir: mesmo basename em cases e profundidades diferentes,
+        // dirs que só diferem por case, targets por basename e por caminho relativo + fantasma.
+        const DIRS: [&str; 5] = ["", "a/", "b/", "B/", "a/sub/"];
+        const BASENAMES: [&str; 5] = ["Plano", "plano", "Nota", "nota", "Ideia"];
+        const TARGETS: [&str; 11] = [
+            "Plano", "plano", "PLANO", "Nota", "nota",
+            "a/Plano", "a/sub/plano", "B/nota", "b/Nota", "Ideia", "fantasma",
+        ];
+
+        for seed in 1..=100u64 {
+            let mut rng = XorShift64(seed);
+            let mut conn = create_test_db();
+
+            // Estado espelho: paths vivos (fonte de verdade para o oráculo)
+            let mut live_paths: Vec<String> = Vec::new();
+
+            // 1. Vault inicial (~8 notas em slots aleatórios) + ~12 links, resolução full
+            let tx = conn.transaction().unwrap();
+            for _ in 0..8 {
+                let path = format!(
+                    "{}/{}{}.md",
+                    VAULT,
+                    DIRS[rng.range(DIRS.len())],
+                    BASENAMES[rng.range(BASENAMES.len())]
+                );
+                if live_paths.contains(&path) {
+                    continue;
+                }
+                tx.execute(
+                    "INSERT INTO notes (path, title, last_modified) VALUES (?, 't', 1)",
+                    [&path],
+                ).unwrap();
+                live_paths.push(path);
+            }
+            for _ in 0..12 {
+                let source = live_paths[rng.range(live_paths.len())].clone();
+                let target = TARGETS[rng.range(TARGETS.len())];
+                tx.execute(
+                    "INSERT OR REPLACE INTO links (source_path, target_name, target_path) VALUES (?, ?, NULL)",
+                    rusqlite::params![source, target],
+                ).unwrap();
+            }
+            re_resolve_all_links(&tx, VAULT).unwrap();
+            tx.commit().unwrap();
+
+            // 2. Oito mutações; após cada uma, incremental == oráculo == full
+            for step in 0..8 {
+                let tx = conn.transaction().unwrap();
+                let mut changed: HashSet<String> = HashSet::new();
+                let op = rng.range(4);
+
+                match op {
+                    // CREATE: nota nova em slot livre, com links próprios (inseridos NULL)
+                    0 => {
+                        let mut created = None;
+                        for _ in 0..10 {
+                            let candidate = format!(
+                                "{}/{}{}.md",
+                                VAULT,
+                                DIRS[rng.range(DIRS.len())],
+                                BASENAMES[rng.range(BASENAMES.len())]
+                            );
+                            if !live_paths.contains(&candidate) {
+                                created = Some(candidate);
+                                break;
+                            }
+                        }
+                        if let Some(path) = created {
+                            tx.execute(
+                                "INSERT INTO notes (path, title, last_modified) VALUES (?, 't', 1)",
+                                [&path],
+                            ).unwrap();
+                            for _ in 0..rng.range(3) {
+                                let target = TARGETS[rng.range(TARGETS.len())];
+                                tx.execute(
+                                    "INSERT OR REPLACE INTO links (source_path, target_name, target_path) VALUES (?, ?, NULL)",
+                                    rusqlite::params![path, target],
+                                ).unwrap();
+                            }
+                            changed.insert(path.clone());
+                            live_paths.push(path);
+                        }
+                    }
+                    // DELETE: o cascade (FK) limpa os links DA nota; links PARA ela re-resolvem via chave
+                    1 => {
+                        if live_paths.len() > 1 {
+                            let idx = rng.range(live_paths.len());
+                            let path = live_paths.remove(idx);
+                            tx.execute("DELETE FROM notes WHERE path = ?", [&path]).unwrap();
+                            changed.insert(path);
+                        }
+                    }
+                    // EDIT: troca os links de uma nota (re-insere NULL) — espelha index_single_file_in_tx
+                    2 => {
+                        let path = live_paths[rng.range(live_paths.len())].clone();
+                        tx.execute("DELETE FROM links WHERE source_path = ?", [&path]).unwrap();
+                        for _ in 0..(1 + rng.range(3)) {
+                            let target = TARGETS[rng.range(TARGETS.len())];
+                            tx.execute(
+                                "INSERT OR REPLACE INTO links (source_path, target_name, target_path) VALUES (?, ?, NULL)",
+                                rusqlite::params![path, target],
+                            ).unwrap();
+                        }
+                        changed.insert(path);
+                    }
+                    // MOVE/RENAME: delete + insert preservando os target_names (conteúdo não mudou)
+                    _ => {
+                        let mut dest = None;
+                        for _ in 0..10 {
+                            let candidate = format!(
+                                "{}/{}{}.md",
+                                VAULT,
+                                DIRS[rng.range(DIRS.len())],
+                                BASENAMES[rng.range(BASENAMES.len())]
+                            );
+                            if !live_paths.contains(&candidate) {
+                                dest = Some(candidate);
+                                break;
+                            }
+                        }
+                        if let Some(new_path) = dest {
+                            let idx = rng.range(live_paths.len());
+                            let old_path = live_paths.remove(idx);
+                            let names: Vec<String> = {
+                                let mut stmt = tx
+                                    .prepare("SELECT target_name FROM links WHERE source_path = ?")
+                                    .unwrap();
+                                let rows = stmt
+                                    .query_map([&old_path], |row| row.get::<_, String>(0))
+                                    .unwrap();
+                                rows.flatten().collect()
+                            };
+                            tx.execute("DELETE FROM notes WHERE path = ?", [&old_path]).unwrap();
+                            tx.execute(
+                                "INSERT INTO notes (path, title, last_modified) VALUES (?, 't', 1)",
+                                [&new_path],
+                            ).unwrap();
+                            for name in names {
+                                tx.execute(
+                                    "INSERT OR REPLACE INTO links (source_path, target_name, target_path) VALUES (?, ?, NULL)",
+                                    rusqlite::params![new_path, name],
+                                ).unwrap();
+                            }
+                            changed.insert(old_path);
+                            changed.insert(new_path.clone());
+                            live_paths.push(new_path);
+                        }
+                    }
+                }
+
+                re_resolve_links_incremental(&tx, VAULT, &changed).unwrap();
+                tx.commit().unwrap();
+
+                // (a) incremental == oráculo ingênuo por link, sobre o estado vivo
+                let snapshot_incremental = read_links_sorted(&conn);
+                for (source, name, target) in &snapshot_incremental {
+                    let expected = resolve_target_path(name, &live_paths, VAULT);
+                    assert_eq!(
+                        target, &expected,
+                        "ORÁCULO divergiu (seed {}, step {}, op {}): link {} -> [[{}]]",
+                        seed, step, op, source, name
+                    );
+                }
+
+                // (b) incremental == full rodada do zero (zera target_path e re-resolve tudo)
+                let tx = conn.transaction().unwrap();
+                tx.execute("UPDATE links SET target_path = NULL", []).unwrap();
+                re_resolve_all_links(&tx, VAULT).unwrap();
+                tx.commit().unwrap();
+                let snapshot_full = read_links_sorted(&conn);
+                assert_eq!(
+                    snapshot_incremental, snapshot_full,
+                    "INCREMENTAL != FULL (seed {}, step {}, op {})",
+                    seed, step, op
+                );
+            }
+        }
+    }
 }
 
