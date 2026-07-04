@@ -1,98 +1,45 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import YAML from 'yaml';
 import { parseRawNote, serializeRawNote } from '../utils/markdown';
 
-// --- Sistema de notificações (F1.2) -------------------------------------------------
-// Toasts transitórios (somem sozinhos) para falhas que hoje eram mudas (só console.error).
-// O canal "grave/persistente" (falha ao salvar, etc.) continua na faixa `globalError`.
-export type NotificationType = 'error' | 'warning' | 'success' | 'info';
+// F3 (Spec 17): os tipos de dados vivem em ./types e a telemetria de cold start em
+// ./telemetry — re-exportados aqui para os 19 consumidores continuarem importando
+// de '../store/appStore' sem mudança.
+import type {
+  NotificationType,
+  AppNotification,
+  NotifyOptions,
+  FileNode,
+  Backlink,
+  SearchResult,
+  GraphData,
+  GraphPosition,
+  AppConfig,
+} from './types';
+import { telemetry, checkAndPrintConsolidatedMetrics } from './telemetry';
+import { createNotificationsSlice } from './notificationsSlice';
+import { createGraphSlice } from './graphSlice';
+import { createLayoutSlice } from './layoutSlice';
+import { ensureDifferentViews } from './viewLayout';
 
-export interface NotificationAction {
-  label: string;
-  run: () => void;
-}
+export type {
+  NotificationType,
+  NotificationAction,
+  AppNotification,
+  NotifyOptions,
+  FileNode,
+  Backlink,
+  GraphNode,
+  GraphLink,
+  SearchResult,
+  GraphData,
+  GraphPosition,
+  AppConfig,
+} from './types';
 
-export interface AppNotification {
-  id: string;
-  type: NotificationType;
-  message: string;
-  /** Persistente fica até o usuário fechar; transitório some após `ttlMs`. */
-  persistent: boolean;
-  action?: NotificationAction;
-}
-
-export interface NotifyOptions {
-  persistent?: boolean;
-  ttlMs?: number;
-  action?: NotificationAction;
-}
-
-export interface FileNode {
-  name: string;
-  path: string;
-  is_dir: boolean;
-  children?: FileNode[];
-}
-
-export interface Backlink {
-  source_path: string;
-  source_title: string;
-  context: string;
-}
-
-export interface GraphNode {
-  id: string;
-  label: string;
-  exists: boolean;
-  degree: number;
-  // react-force-graph will inject x,y,z or we can load them:
-  x?: number;
-  y?: number;
-  z?: number;
-  fx?: number;
-  fy?: number;
-  fz?: number;
-}
-
-export interface GraphLink {
-  source: string;
-  target: string;
-}
-
-export interface SearchResult {
-  path: string;
-  title: string;
-  snippet: string;
-}
-
-export interface GraphData {
-  nodes: GraphNode[];
-  links: GraphLink[];
-}
-
-export interface GraphPosition {
-  x2d?: number;
-  y2d?: number;
-  x3d?: number;
-  y3d?: number;
-  z3d?: number;
-  x?: number;
-  y?: number;
-  z?: number;
-}
-
-
-export interface AppConfig {
-  current_vault: string | null;
-  recent_vaults: string[];
-  theme: 'light' | 'dark';
-  sidebar_width: number;
-}
-
-interface AppState {
+export interface AppState {
   theme: 'light' | 'dark';
   currentVault: string | null;
   recentVaults: string[];
@@ -216,47 +163,7 @@ async function saveConfigHelper(state: {
 // Parser and serializer imported from utils/markdown
 
 let saveTimeout: ReturnType<typeof setTimeout> | null = null;
-let searchTimeout: ReturnType<typeof setTimeout> | null = null;
 let pendingSave: { path: string; content: string } | null = null;
-let activeWorker: Worker | null = null;
-
-let rustStartupTime = 0;
-let dbLoadTime = 0;
-let treeLoadStartTime = 0;
-let treeLoadTime = 0;
-let indexStartTime = 0;
-let indexTime = 0;
-let graphTime = 0;
-let metricsPrinted = false;
-
-let hasTreeLoaded = false;
-let hasIndexed = false;
-let hasGraphLoaded = false;
-
-interface BootstrapWindow extends Window {
-  __bootstrapStart?: number;
-}
-
-const checkAndPrintConsolidatedMetrics = () => {
-  if (metricsPrinted) return;
-  if (hasTreeLoaded && hasIndexed && hasGraphLoaded) {
-    metricsPrinted = true;
-    const jsBootstrapStart = (window as BootstrapWindow).__bootstrapStart || 0;
-    const totalTime = performance.now();
-    
-    console.log('=== TELEMETRY: COLD START METRICS ===');
-    console.log(`1. Rust Core Startup:       ${rustStartupTime} ms`);
-    console.log(`2. Webview JS Bootstrap:    ${jsBootstrapStart.toFixed(2)} ms`);
-    console.log(`3. DB/Config Load:          ${dbLoadTime.toFixed(2)} ms`);
-    console.log(`4. FileTree Load:           ${treeLoadTime.toFixed(2)} ms`);
-    console.log(`5. Search Indexing:         ${indexTime.toFixed(2)} ms`);
-    console.log(`6. Graph Layout Settle:     ${graphTime.toFixed(2)} ms`);
-    console.log('-------------------------------------');
-    console.log(`TOTAL COLD START DURATION:  ${totalTime.toFixed(2)} ms`);
-    console.log('=====================================');
-  }
-};
-
 
 // Falha de save (F1.2): notificação persistente, com "Tentar de novo", deduplicada (uma por vez),
 // preservando o texto (restaura pendingSave). O fluxo de escrita atômica em si NÃO muda.
@@ -336,23 +243,13 @@ const scheduleSaveHelper = () => {
   }, 500);
 };
 
-const ensureDifferentViews = (
-  center: 'editor' | 'graph',
-  right: 'backlinks' | 'graph' | 'editor'
-): {
-  centerView: 'editor' | 'graph';
-  rightView: 'backlinks' | 'graph' | 'editor';
-} => {
-  let nextRight = right;
-  if (center === 'editor' && right === 'editor') {
-    nextRight = 'graph';
-  } else if (center === 'graph' && right === 'graph') {
-    nextRight = 'editor';
-  }
-  return { centerView: center, rightView: nextRight };
-};
-
 export const useAppStore = create<AppState>((set, get) => ({
+  // F3 (Spec 17): slices frios compostos por spread — grafo/busca, layout e notificações.
+  // O núcleo sagrado (save/vault/abas/watcher) permanece aqui embaixo.
+  ...createNotificationsSlice(set, get),
+  ...createGraphSlice(set, get),
+  ...createLayoutSlice(set),
+
   theme: 'dark',
   currentVault: null,
   recentVaults: [],
@@ -372,56 +269,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   existingNotes: new Map<string, string>(),
   activeNoteBacklinks: [],
   isBacklinksLoading: false,
-
-  // Graph Default States
-  graphData: null,
-  graphViewMode: '3d',
-  graphPositions: {},
-  graphSearchQuery: '',
-  isGraphSimulating: false,
-  searchResults: [],
-  matchingPaths: new Set<string>(),
-  isSearching: false,
-
-  // Layout & Navigation Default States
-  leftPanelMode: 'files',
-  isLeftPanelOpen: true,
-  isRightPanelOpen: false,
-  centerView: 'graph',
-  rightView: 'backlinks',
   platform: 'windows',
-  rightPanelWidth: 300,
   isNoteDirty: false,
-  globalError: null,
-  setGlobalError: (error) => set({ globalError: error }),
-  notifications: [],
-  notify: (type, message, opts) => {
-    const id = `n_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-    const persistent = opts?.persistent ?? false;
-    const notification: AppNotification = { id, type, message, persistent, action: opts?.action };
-    const logFn = type === 'error' ? console.error : type === 'warning' ? console.warn : console.log;
-    logFn(`[notify:${type}] ${message}`);
-    set((s) => ({ notifications: [...s.notifications, notification] }));
-    if (!persistent) {
-      const ttl = opts?.ttlMs ?? 5000;
-      setTimeout(() => get().dismissNotification(id), ttl);
-    }
-    return id;
-  },
-  dismissNotification: (id) =>
-    set((s) => ({ notifications: s.notifications.filter((n) => n.id !== id) })),
-  rebuildIndex: async () => {
-    const vault = get().currentVault;
-    if (!vault) return;
-    try {
-      // rebuild_index apaga o DB e re-dispara a indexação completa (com o fix do F2), emitindo
-      // eventos 'indexing-status' que a StatusBar já reflete ("Indexando…" → "Índice atualizado").
-      await invoke('rebuild_index', { vaultPath: vault });
-      get().notify('info', 'Reconstruindo o índice… a busca passará a enxergar o frontmatter.');
-    } catch (e) {
-      get().notify('error', `Falha ao reconstruir o índice: ${e}`);
-    }
-  },
 
   initApp: async () => {
     const initStart = performance.now();
@@ -435,10 +284,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ platform: osPlatform });
 
       const config = await invoke<AppConfig>('load_config');
-      dbLoadTime = performance.now() - initStart;
+      telemetry.dbLoadTime = performance.now() - initStart;
 
       try {
-        rustStartupTime = await invoke<number>('get_rust_bootstrap_time');
+        telemetry.rustStartupTime = await invoke<number>('get_rust_bootstrap_time');
       } catch (err) {
         console.error('Failed to get rust startup time:', err);
       }
@@ -526,10 +375,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     }),
 
   loadVault: async (path: string) => {
-    hasTreeLoaded = false;
-    hasIndexed = false;
-    hasGraphLoaded = false;
-    treeLoadStartTime = performance.now();
+    telemetry.hasTreeLoaded = false;
+    telemetry.hasIndexed = false;
+    telemetry.hasGraphLoaded = false;
+    telemetry.treeLoadStartTime = performance.now();
     let tree: FileNode;
     try {
       tree = await invoke<FileNode>('load_vault_tree', { vaultPath: path });
@@ -538,8 +387,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       get().setGlobalError(`Falha ao carregar o vault: ${e}`);
       return;
     }
-    treeLoadTime = performance.now() - treeLoadStartTime;
-    hasTreeLoaded = true;
+    telemetry.treeLoadTime = performance.now() - telemetry.treeLoadStartTime;
+    telemetry.hasTreeLoaded = true;
 
     set((state) => {
       const filteredRecent = state.recentVaults.filter((v) => v !== path);
@@ -1228,309 +1077,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     }
   },
-
-  loadGraphData: async () => {
-    const startTime = performance.now();
-    const mode = get().graphViewMode;
-    try {
-      const data = await invoke<GraphData>('get_graph_data');
-      const cached = await invoke<Record<string, GraphPosition>>('load_graph_positions');
-      
-      const nodes = data.nodes.map(node => {
-        const cachePos = cached[node.id];
-        if (cachePos) {
-          let x: number | undefined;
-          let y: number | undefined;
-          let z: number | undefined;
-          if (mode === '2d') {
-            if (cachePos.x2d !== undefined && cachePos.y2d !== undefined) {
-              x = cachePos.x2d;
-              y = cachePos.y2d;
-              z = 0;
-            } else if (cachePos.x !== undefined && cachePos.y !== undefined) {
-              x = cachePos.x;
-              y = cachePos.y;
-              z = 0;
-            }
-          } else {
-            if (cachePos.x3d !== undefined && cachePos.y3d !== undefined && cachePos.z3d !== undefined) {
-              x = cachePos.x3d;
-              y = cachePos.y3d;
-              z = cachePos.z3d;
-            } else if (cachePos.x !== undefined && cachePos.y !== undefined && cachePos.z !== undefined) {
-              x = cachePos.x;
-              y = cachePos.y;
-              z = cachePos.z;
-            }
-          }
-
-          if (x !== undefined && y !== undefined) {
-            return {
-              ...node,
-              x,
-              y,
-              z: z || 0,
-              fx: x,
-              fy: y,
-              fz: z || 0,
-            };
-          }
-        }
-        return {
-          ...node,
-          fx: undefined,
-          fy: undefined,
-          fz: undefined,
-        };
-      });
-
-      const hasUncached = nodes.some(n => n.fx === undefined);
-      const isCacheEmpty = Object.keys(cached).length === 0;
-
-      set({ graphData: { nodes, links: data.links }, graphPositions: cached });
-
-      if (activeWorker) {
-        activeWorker.terminate();
-        activeWorker = null;
-      }
-
-      if (!hasUncached && !isCacheEmpty) {
-        const cacheLoadTime = performance.now() - startTime;
-        console.log(`[Telemetry] Graph loaded from cache in ${cacheLoadTime.toFixed(2)} ms`);
-        graphTime = cacheLoadTime;
-        hasGraphLoaded = true;
-        set({ isGraphSimulating: false });
-        checkAndPrintConsolidatedMetrics();
-      }
-
-      if (hasUncached || isCacheEmpty) {
-        set({ isGraphSimulating: true });
-        const simStartTime = performance.now();
-        let longTasksCount = 0;
-        let observer: PerformanceObserver | null = null;
-        try {
-          if (typeof PerformanceObserver !== 'undefined') {
-            observer = new PerformanceObserver((list) => {
-              for (const entry of list.getEntries()) {
-                if (entry.duration > 50) {
-                  longTasksCount++;
-                }
-              }
-            });
-            observer.observe({ entryTypes: ['longtask'] });
-          }
-        } catch (e) {
-          // Ignore if environment does not support PerformanceObserver or longtask entry
-        }
-
-        activeWorker = new Worker(new URL('../utils/graphWorker.ts', import.meta.url), { type: 'module' });
-        
-        activeWorker.postMessage({
-          type: 'START_SIMULATION',
-          nodes: nodes.map(n => ({
-            id: n.id,
-            x: n.x,
-            y: n.y,
-            z: n.z,
-            fx: n.fx,
-            fy: n.fy,
-            fz: n.fz,
-          })),
-          links: data.links,
-          dimensions: mode === '2d' ? 2 : 3,
-          iterations: 120,
-        });
-
-        activeWorker.onmessage = async (event: MessageEvent) => {
-          const { type: msgType, nodes: updatedNodes } = event.data;
-          
-          if (msgType === 'TICK') {
-            const currentData = get().graphData;
-            if (!currentData) return;
-
-            const nodeMap = new Map<string, any>(updatedNodes.map((un: any) => [un.id, un]));
-            const nextNodes = currentData.nodes.map(n => {
-              const un = nodeMap.get(n.id);
-              if (un) {
-                return {
-                  ...n,
-                  x: un.x,
-                  y: un.y,
-                  z: un.z,
-                  fx: un.fx,
-                  fy: un.fy,
-                  fz: un.fz,
-                };
-              }
-              return n;
-            });
-            set({ graphData: { nodes: nextNodes, links: currentData.links } });
-          } else if (msgType === 'END_SIMULATION') {
-            const currentData = get().graphData;
-            if (!currentData) return;
-
-            const nodeMap = new Map<string, any>(updatedNodes.map((un: any) => [un.id, un]));
-            const nextNodes = currentData.nodes.map(n => {
-              const un = nodeMap.get(n.id);
-              if (un) {
-                return {
-                  ...n,
-                  x: un.x,
-                  y: un.y,
-                  z: un.z,
-                  fx: un.x,
-                  fy: un.y,
-                  fz: un.z,
-                };
-              }
-              return n;
-            });
-
-            const currentPositions = { ...get().graphPositions };
-            nextNodes.forEach(n => {
-              const existing = currentPositions[n.id] || {};
-              if (mode === '2d') {
-                currentPositions[n.id] = {
-                  ...existing,
-                  x2d: n.x,
-                  y2d: n.y,
-                };
-              } else {
-                currentPositions[n.id] = {
-                  ...existing,
-                  x3d: n.x,
-                  y3d: n.y,
-                  z3d: n.z,
-                };
-              }
-            });
-
-            set({ graphData: { nodes: nextNodes, links: currentData.links }, isGraphSimulating: false });
-            await get().saveGraphPositions(currentPositions);
-            
-            const simDuration = performance.now() - simStartTime;
-            graphTime = simDuration;
-            hasGraphLoaded = true;
-            if (observer) {
-              observer.disconnect();
-            }
-            console.log(`[Telemetry] Worker Simulation settled in ${simDuration.toFixed(2)} ms`);
-            console.log(`[Telemetry] Main thread Long Tasks (>50ms) during simulation: ${longTasksCount}`);
-
-            if (activeWorker) {
-              activeWorker.terminate();
-              activeWorker = null;
-            }
-            checkAndPrintConsolidatedMetrics();
-          }
-        };
-      }
-    } catch (e) {
-      console.error('Failed to load graph data:', e);
-      get().notify('error', 'Falha ao carregar o grafo.');
-      graphTime = 0;
-      hasGraphLoaded = true;
-      checkAndPrintConsolidatedMetrics();
-    }
-  },
-
-  toggleGraphViewMode: () => {
-    const currentMode = get().graphViewMode;
-    const nextMode = currentMode === '2d' ? '3d' : '2d';
-    set({ graphViewMode: nextMode });
-    get().loadGraphData();
-  },
-
-  saveGraphPositions: async (positions: Record<string, GraphPosition>) => {
-    try {
-      await invoke('save_graph_positions', { positions });
-      set({ graphPositions: positions });
-    } catch (e) {
-      console.error('Failed to save graph positions:', e);
-      get().notify('warning', 'Falha ao salvar as posições do grafo.');
-    }
-  },
-
-  setGraphSearchQuery: (query: string) => {
-    set({ graphSearchQuery: query });
-    if (searchTimeout) {
-      clearTimeout(searchTimeout);
-      searchTimeout = null;
-    }
-    if (!query.trim()) {
-      set({
-        searchResults: [],
-        matchingPaths: new Set(),
-        isSearching: false,
-      });
-      return;
-    }
-    set({ isSearching: true });
-    searchTimeout = setTimeout(async () => {
-      searchTimeout = null;
-      await get().searchNotesFts(query);
-    }, 250);
-  },
-
-  searchNotesFts: async (query: string) => {
-    if (!query.trim()) {
-      set({
-        searchResults: [],
-        matchingPaths: new Set(),
-        isSearching: false,
-      });
-      return;
-    }
-    try {
-      const [results, paths] = await Promise.all([
-        invoke<SearchResult[]>('search_notes', { query }),
-        invoke<string[]>('get_matching_paths', { query }),
-      ]);
-      if (get().graphSearchQuery === query) {
-        set({
-          searchResults: results,
-          matchingPaths: new Set(paths),
-          isSearching: false,
-        });
-      }
-    } catch (e) {
-      console.error('Failed to search notes:', e);
-      get().notify('error', 'Falha na busca.');
-      if (get().graphSearchQuery === query) {
-        set({
-          isSearching: false,
-        });
-      }
-    }
-  },
-
-  // Layout & Navigation Actions
-  setLeftPanelMode: (mode) => set({ leftPanelMode: mode, isLeftPanelOpen: true }),
-  toggleLeftPanel: () => set((state) => ({ isLeftPanelOpen: !state.isLeftPanelOpen })),
-  toggleRightPanel: () => set((state) => ({ isRightPanelOpen: !state.isRightPanelOpen })),
-  setRightPanelWidth: (width) => set({ rightPanelWidth: width }),
-  setCenterView: (view) => set((state) => ensureDifferentViews(view, state.rightView)),
-  setRightView: (view) => set((state) => {
-    let nextCenter = state.centerView;
-    if (view === 'editor' && state.centerView === 'editor') {
-      nextCenter = 'graph';
-    } else if (view === 'graph' && state.centerView === 'graph') {
-      nextCenter = 'editor';
-    }
-    return {
-      rightView: view,
-      isRightPanelOpen: true,
-      centerView: nextCenter
-    };
-  }),
-  swapViews: () => set((state) => {
-    const nextCenter = state.rightView === 'editor' ? 'editor' : 'graph';
-    const nextRight = state.centerView === 'editor' ? 'editor' : 'graph';
-    return {
-      centerView: nextCenter,
-      rightView: nextRight as 'backlinks' | 'graph' | 'editor'
-    };
-  }),
 }));
 
 // Listener reativo de eventos de indexação emitidos pelo Rust backend
@@ -1538,13 +1084,13 @@ export async function setupIndexingListener(): Promise<UnlistenFn> {
   const unlisten = await listen<string>('indexing-status', async (event) => {
     const payload = event.payload;
     if (payload === 'started') {
-      indexStartTime = performance.now();
+      telemetry.indexStartTime = performance.now();
       useAppStore.setState({ isIndexing: true, indexingProgressText: 'iniciando' });
     } else if (payload === 'finished') {
-      if (indexStartTime > 0) {
-        indexTime = performance.now() - indexStartTime;
+      if (telemetry.indexStartTime > 0) {
+        telemetry.indexTime = performance.now() - telemetry.indexStartTime;
       }
-      hasIndexed = true;
+      telemetry.hasIndexed = true;
       useAppStore.setState({ isIndexing: false, indexingProgressText: null });
       await useAppStore.getState().refreshExistingNotes();
       const activeTab = useAppStore.getState().activeTab;
@@ -1564,10 +1110,10 @@ export async function setupIndexingListener(): Promise<UnlistenFn> {
       const progressText = payload.substring('progress:'.length);
       useAppStore.setState({ isIndexing: true, indexingProgressText: progressText });
     } else if (payload.startsWith('error')) {
-      if (indexStartTime > 0) {
-        indexTime = performance.now() - indexStartTime;
+      if (telemetry.indexStartTime > 0) {
+        telemetry.indexTime = performance.now() - telemetry.indexStartTime;
       }
-      hasIndexed = true;
+      telemetry.hasIndexed = true;
       console.error('Indexing error:', payload);
       useAppStore.getState().notify('error', 'Falha na indexação do vault. Busca e grafo podem ficar incompletos.');
       useAppStore.setState({ isIndexing: false, indexingProgressText: null });

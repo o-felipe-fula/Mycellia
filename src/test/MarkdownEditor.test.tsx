@@ -202,6 +202,42 @@ describe('MarkdownEditor Component', () => {
     expect(placeholders[0]).toHaveTextContent('imagem_topo.png');
     expect(placeholders[1]).toHaveTextContent('imagem_fim.png');
   });
+
+  it('BUG-04: imagem que chega no fileTree aparece SEM reabrir a nota', async () => {
+    // Antes do fix, o imagePreviewExtension capturava o fileTree do momento da montagem
+    // (deps [activeTab]) — imagem recém-colada dava "não encontrada" até trocar de aba.
+    // Agora a extensão lê o store vivo e o editor dispara fileTreeChangedEffect na mudança.
+    useAppStore.setState({
+      fileTree: { name: 'Vault', path: 'C:\\Vault', is_dir: true, children: [] },
+    });
+
+    render(<MarkdownEditor content={'Texto\n![[nova_imagem.png]]'} onChange={vi.fn()} />);
+
+    // 1. Árvore ainda sem o arquivo → indicador de erro
+    const errorPlaceholder = await screen.findByText(/Imagem não encontrada/i);
+    expect(errorPlaceholder).toHaveTextContent('nova_imagem.png');
+
+    // 2. A imagem "chega" no vault (watcher atualizou a árvore) — SEM trocar de aba
+    useAppStore.setState({
+      fileTree: {
+        name: 'Vault',
+        path: 'C:\\Vault',
+        is_dir: true,
+        children: [
+          { name: 'nova_imagem.png', path: 'C:\\Vault\\nova_imagem.png', is_dir: false },
+        ],
+      },
+    });
+
+    // 3. O widget de imagem substitui o erro sem reabrir a nota
+    await vi.waitFor(
+      () => {
+        expect(screen.queryByText(/Imagem não encontrada/i)).toBeNull();
+      },
+      { timeout: 5000 }
+    );
+  });
+
   it('deve renderizar tabela como widget e voltar a cru no cursor', async () => {
     const tableContent = `
 | Cabecalho 1 | Cabecalho 2 |
