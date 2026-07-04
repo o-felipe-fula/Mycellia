@@ -288,15 +288,21 @@ describe('MarkdownEditor Component', () => {
       />
     );
 
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // FLAKE-02 (fix, com OK do Felipe): espera ATIVA em vez de sleep fixo de 50ms — sob
+    // carga (suíte em paralelo com cargo/clippy) o ciclo assíncrono do CodeMirror passava
+    // do sleep e a contagem flakava. As asserções continuam EXATAMENTE as mesmas.
+    await vi.waitFor(
+      () => {
+        const boxes = container.querySelectorAll('.cm-task-marker-box');
+        expect(boxes.length).toBe(2);
+        expect(boxes[0]).not.toHaveClass('checked');
+        expect(boxes[1]).toHaveClass('checked');
 
-    const boxes = container.querySelectorAll('.cm-task-marker-box');
-    expect(boxes.length).toBe(2);
-    expect(boxes[0]).not.toHaveClass('checked');
-    expect(boxes[1]).toHaveClass('checked');
-
-    const bullets = container.querySelectorAll('.cm-bullet-mark');
-    expect(bullets.length).toBe(0);
+        const bullets = container.querySelectorAll('.cm-bullet-mark');
+        expect(bullets.length).toBe(0);
+      },
+      { timeout: 5000 }
+    );
   });
 
   it('deve renderizar strikethrough, ocultar marcadores ~~ fora do cursor e reverter no cursor', async () => {

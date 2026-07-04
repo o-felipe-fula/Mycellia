@@ -129,7 +129,13 @@ const GraphViewInner: React.FC = () => {
     transitionProgressRef.current = transitionProgress;
   }, [transitionProgress]);
 
-  // WebGL Cleanup upon mode switch or unmount to prevent GPU memory leaks
+  // WebGL Cleanup upon mode switch or unmount to prevent GPU memory leaks.
+  // BUG-05 (fix): NÃO forçar perda de contexto (forceContextLoss/loseContext) — no WebView2,
+  // matar o contexto na mão envenenava o contexto do PRÓXIMO mount (canvas novo nascia com
+  // isContextLost()=true, drawingBuffer 0x0 → grafo BRANCO ao abrir/fechar nota). O toggle
+  // 2D↔3D "consertava" porque nesse caminho o cleanup era no-op (instância 2D sem renderer).
+  // renderer.dispose() + dispose de geometria/material + scene.clear() já liberam a GPU;
+  // o contexto morre com o canvas no GC.
   useEffect(() => {
     const fgInstance = fgRef.current;
     return () => {
@@ -139,12 +145,6 @@ const GraphViewInner: React.FC = () => {
           const renderer = forceGraph3D.renderer();
           if (renderer) {
             renderer.dispose();
-            renderer.forceContextLoss();
-            const gl = renderer.getContext();
-            const extension = gl.getExtension('WEBGL_lose_context');
-            if (extension) {
-              extension.loseContext();
-            }
           }
           const scene = forceGraph3D.scene();
           if (scene) {
