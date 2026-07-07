@@ -116,6 +116,31 @@ fn extract_tags_from_raw(body: &str, exclude_ranges: &[(usize, usize)], tags_set
     }
 }
 
+// Um embed de asset de imagem (![[foto.png]]) é conteúdo renderizado DENTRO da nota,
+// não uma conexão de conhecimento entre notas — logo não vira link/backlink nem nó de
+// grafo. Espelha a lista de extensões de imagem de FileTree.tsx (png/jpg/jpeg/gif/svg/webp).
+// (Attachments não-imagem — pdf etc. — ainda passariam; ver Bugs_Conhecidos se surgir caso.)
+fn is_image_asset(target: &str) -> bool {
+    const IMAGE_EXTS: &[&str] = &["png", "jpg", "jpeg", "gif", "svg", "webp"];
+    match target.rsplit_once('.') {
+        Some((_, ext)) => IMAGE_EXTS.contains(&ext.to_ascii_lowercase().as_str()),
+        None => false,
+    }
+}
+
+// [[Nota.md]] e [[Nota]] apontam para o mesmo alvo (compatível com o Obsidian). Remove o
+// sufixo ".md" (case-insensitive) pra o resolvedor casar com o título indexado, que é o
+// basename SEM extensão. Opera em bytes (o sufixo é ASCII) — nunca corta no meio de char.
+fn strip_md_ext(target: &str) -> &str {
+    let b = target.as_bytes();
+    let n = b.len();
+    if n >= 3 && b[n - 3] == b'.' && b[n - 2].eq_ignore_ascii_case(&b'm') && b[n - 1].eq_ignore_ascii_case(&b'd') {
+        &target[..n - 3]
+    } else {
+        target
+    }
+}
+
 // Extrai wiki-links [[Link]] e [[Link|Alias]] diretamente do texto bruto,
 // pulando regiões de código delimitadas por ``` (fenced code blocks)
 fn extract_wiki_links_from_raw(body: &str, links_set: &mut HashSet<String>) {
@@ -209,8 +234,10 @@ fn extract_wiki_links_from_raw(body: &str, links_set: &mut HashSet<String>) {
                     None => link_content,
                 };
                 let target_trimmed = target.trim();
-                if !target_trimmed.is_empty() {
-                    links_set.insert(target_trimmed.to_string());
+                // Ignora embeds de imagem (conteúdo interno, não conexão) e normaliza
+                // [[X.md]] → [[X]] pra casar com o basename indexado no resolvedor.
+                if !target_trimmed.is_empty() && !is_image_asset(target_trimmed) {
+                    links_set.insert(strip_md_ext(target_trimmed).to_string());
                 }
             }
             search_idx = abs_close + 2;
