@@ -13,6 +13,7 @@ import type {
   NotifyOptions,
   FileNode,
   Backlink,
+  OutgoingLink,
   SearchResult,
   GraphData,
   GraphPosition,
@@ -31,6 +32,7 @@ export type {
   NotifyOptions,
   FileNode,
   Backlink,
+  OutgoingLink,
   GraphNode,
   GraphLink,
   SearchResult,
@@ -58,6 +60,7 @@ export interface AppState {
   conflictModal: { path: string; diskContent: string | null; localContentSnapshot: string } | null;
   existingNotes: Map<string, string>; // Mapeia lowercase basename/relative path para absolute path
   activeNoteBacklinks: Backlink[];
+  activeNoteOutgoingLinks: OutgoingLink[];
   isBacklinksLoading: boolean;
 
   // Graph State
@@ -268,6 +271,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   conflictModal: null,
   existingNotes: new Map<string, string>(),
   activeNoteBacklinks: [],
+  activeNoteOutgoingLinks: [],
   isBacklinksLoading: false,
   platform: 'windows',
   isNoteDirty: false,
@@ -575,7 +579,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         clearTimeout(saveTimeout);
         saveTimeout = null;
       }
-      set({ activeNoteContent: null, activeNoteRawFrontmatter: null, activeNoteYamlDoc: null, activeNoteBacklinks: [] });
+      set({ activeNoteContent: null, activeNoteRawFrontmatter: null, activeNoteYamlDoc: null, activeNoteBacklinks: [], activeNoteOutgoingLinks: [] });
     }
 
     try {
@@ -649,7 +653,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       await get().loadActiveNote(nextActiveTab);
       await get().loadBacklinks(nextActiveTab);
     } else if (activeTab === path) {
-      set({ activeNoteContent: null, activeNoteRawFrontmatter: null, activeNoteYamlDoc: null, activeNoteBacklinks: [] });
+      set({ activeNoteContent: null, activeNoteRawFrontmatter: null, activeNoteYamlDoc: null, activeNoteBacklinks: [], activeNoteOutgoingLinks: [] });
     }
   },
 
@@ -678,6 +682,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           activeNoteRawFrontmatter: null,
           activeNoteYamlDoc: null,
           activeNoteBacklinks: [],
+          activeNoteOutgoingLinks: [],
           ...updates
         };
       });
@@ -994,12 +999,16 @@ export const useAppStore = create<AppState>((set, get) => ({
   loadBacklinks: async (path: string) => {
     set({ isBacklinksLoading: true });
     try {
-      const backlinks = await invoke<Backlink[]>('get_backlinks', { targetPath: path });
-      set({ activeNoteBacklinks: backlinks, isBacklinksLoading: false });
+      // As duas direções da conexão: quem aponta pra cá + o que esta nota referencia
+      const [backlinks, outgoingLinks] = await Promise.all([
+        invoke<Backlink[]>('get_backlinks', { targetPath: path }),
+        invoke<OutgoingLink[]>('get_outgoing_links', { sourcePath: path }),
+      ]);
+      set({ activeNoteBacklinks: backlinks, activeNoteOutgoingLinks: outgoingLinks, isBacklinksLoading: false });
     } catch (e) {
       console.error('Failed to load backlinks:', e);
       get().notify('warning', 'Falha ao carregar os backlinks.');
-      set({ activeNoteBacklinks: [], isBacklinksLoading: false });
+      set({ activeNoteBacklinks: [], activeNoteOutgoingLinks: [], isBacklinksLoading: false });
     }
   },
 

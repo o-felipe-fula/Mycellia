@@ -45,6 +45,13 @@ pub struct Backlink {
     pub context: String,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct OutgoingLink {
+    pub target_name: String,
+    pub target_path: Option<String>,
+    pub target_title: Option<String>,
+}
+
 // Auxiliar para pegar o caminho do index.db no AppData
 fn get_db_path(app: &AppHandle) -> Option<PathBuf> {
     let mut path = app.path().app_config_dir().ok()?;
@@ -724,6 +731,53 @@ pub fn get_backlinks(app: AppHandle, target_path: String) -> Result<Vec<Backlink
     }
 
     Ok(backlinks)
+}
+
+// Query pura dos links de SAÍDA de uma nota (o espelho do get_backlinks). LEFT JOIN para
+// incluir links não-resolvidos (target_path NULL = nota que ainda não existe no vault).
+// Fatorada do comando para ser testável direto contra o DB de teste.
+pub fn query_outgoing_links(
+    conn: &rusqlite::Connection,
+    source_path: &str,
+) -> Result<Vec<OutgoingLink>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT l.target_name, l.target_path, n.title
+             FROM links l
+             LEFT JOIN notes n ON l.target_path = n.path
+             WHERE l.source_path = ?
+             ORDER BY l.target_name COLLATE NOCASE",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map([source_path], |row| {
+            Ok(OutgoingLink {
+                target_name: row.get(0)?,
+                target_path: row.get(1)?,
+                target_title: row.get(2)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+
+    Ok(rows.flatten().collect())
+}
+
+// Comando Tauri: Busca os links de saída da nota ativa (o que ESTA nota referencia)
+#[tauri::command]
+pub fn get_outgoing_links(app: AppHandle, source_path: String) -> Result<Vec<OutgoingLink>, String> {
+    let state = app.state::<DbState>();
+    if state.is_rebuilding.load(Ordering::Relaxed) || state.is_indexing.load(Ordering::Relaxed) {
+        return Ok(Vec::new());
+    }
+
+    let mut conn_lock = state.conn.lock().map_err(|e| format!("Erro no lock de conexão: {}", e))?;
+    if conn_lock.is_none() {
+        return Ok(Vec::new());
+    }
+    let conn = conn_lock.as_mut().ok_or_else(|| "Conexão com o banco perdida".to_string())?;
+
+    query_outgoing_links(conn, &source_path)
 }
 
 // F4: a resolução FULL (sem filtro de delta). Depois do F4 todos os chamadores de produção

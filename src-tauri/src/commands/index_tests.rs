@@ -779,6 +779,49 @@ Link vazio (deve ser ignorado): [[]].
         let _ = fs::remove_dir_all(&temp_dir_backlinks);
     }
 
+    // Links de SAÍDA (o espelho do get_backlinks): a nota origem deve enxergar quem ela
+    // referencia — resolvidos (com path+título) E não-resolvidos (nota ainda não criada).
+    #[test]
+    fn test_query_outgoing_links_resolved_and_unresolved() {
+        use crate::commands::index_db::query_outgoing_links;
+
+        let conn = create_test_db();
+
+        conn.execute(
+            "INSERT INTO notes (path, title, last_modified) VALUES (?, ?, ?)",
+            rusqlite::params!["/vault/Nota 1.md", "Nota 1", 1000],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO notes (path, title, last_modified) VALUES (?, ?, ?)",
+            rusqlite::params!["/vault/Nota 2.md", "Nota 2", 1000],
+        ).unwrap();
+
+        // Nota 1 aponta para a Nota 2 (resolvido) e para uma nota inexistente (NULL)
+        conn.execute(
+            "INSERT INTO links (source_path, target_name, target_path) VALUES (?, ?, ?)",
+            rusqlite::params!["/vault/Nota 1.md", "Nota 2", "/vault/Nota 2.md"],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO links (source_path, target_name, target_path) VALUES (?, ?, NULL)",
+            rusqlite::params!["/vault/Nota 1.md", "Ainda Nao Existe"],
+        ).unwrap();
+
+        // A origem enxerga os DOIS links de saída, em ordem alfabética de target_name
+        let outgoing = query_outgoing_links(&conn, "/vault/Nota 1.md").unwrap();
+        assert_eq!(outgoing.len(), 2);
+        assert_eq!(outgoing[0].target_name, "Ainda Nao Existe");
+        assert_eq!(outgoing[0].target_path, None);
+        assert_eq!(outgoing[0].target_title, None);
+        assert_eq!(outgoing[1].target_name, "Nota 2");
+        assert_eq!(outgoing[1].target_path, Some("/vault/Nota 2.md".to_string()));
+        assert_eq!(outgoing[1].target_title, Some("Nota 2".to_string()));
+
+        // A Nota 2 não aponta para ninguém — saída vazia (o caso do relato do bug:
+        // direção de SAÍDA não pode vazar para dentro dos backlinks de entrada)
+        let outgoing_b = query_outgoing_links(&conn, "/vault/Nota 2.md").unwrap();
+        assert!(outgoing_b.is_empty());
+    }
+
     #[test]
     fn test_incremental_indexing_single_file() {
         let mut conn = create_test_db();

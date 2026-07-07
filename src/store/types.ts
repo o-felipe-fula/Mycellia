@@ -40,6 +40,12 @@ export interface Backlink {
   context: string;
 }
 
+export interface OutgoingLink {
+  target_name: string;
+  target_path: string | null;
+  target_title: string | null;
+}
+
 export interface GraphNode {
   id: string;
   label: string;
