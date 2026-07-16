@@ -1481,6 +1481,7 @@ mod tests {
             recent_vaults: vec![vault_dir.to_string_lossy().to_string()],
             theme: "dark".to_string(),
             sidebar_width: 260,
+            editor_wide_mode: false,
         };
         crate::commands::config::save_config(handle.clone(), config).unwrap();
 
@@ -1536,6 +1537,7 @@ mod tests {
             recent_vaults: vec![vault_dir.to_string_lossy().to_string()],
             theme: "dark".to_string(),
             sidebar_width: 260,
+            editor_wide_mode: false,
         };
         crate::commands::config::save_config(handle.clone(), config).unwrap();
 
@@ -1682,6 +1684,7 @@ mod tests {
             recent_vaults: vec![vault_dir.to_string_lossy().to_string()],
             theme: "dark".to_string(),
             sidebar_width: 260,
+            editor_wide_mode: false,
         };
         crate::commands::config::save_config(handle.clone(), config).unwrap();
 

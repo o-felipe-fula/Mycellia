@@ -137,6 +137,10 @@ export interface AppState {
   setCenterView: (view: 'editor' | 'graph') => void;
   setRightView: (view: 'backlinks' | 'graph' | 'editor') => void;
   swapViews: () => void;
+
+  // E1 (Spec 25): largura da linha do editor (false = confortável, true = cheia)
+  editorWideMode: boolean;
+  toggleEditorWideMode: () => void;
 }
 
 // Salva as configurações de forma atômica no Rust AppData
@@ -145,6 +149,7 @@ async function saveConfigHelper(state: {
   recentVaults: string[];
   theme: 'light' | 'dark';
   sidebarWidth: number;
+  editorWideMode: boolean;
 }) {
   try {
     const config: AppConfig = {
@@ -152,6 +157,7 @@ async function saveConfigHelper(state: {
       recent_vaults: state.recentVaults,
       theme: state.theme,
       sidebar_width: state.sidebarWidth,
+      editor_wide_mode: state.editorWideMode,
     };
     await invoke('save_config', { config });
   } catch (e) {
@@ -271,6 +277,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   isBacklinksLoading: false,
   platform: 'windows',
   isNoteDirty: false,
+  editorWideMode: false,
 
   initApp: async () => {
     const initStart = performance.now();
@@ -307,6 +314,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         currentVault: config.current_vault,
         recentVaults: config.recent_vaults,
         sidebarWidth: config.sidebar_width,
+        editorWideMode: config.editor_wide_mode ?? false,
       });
 
       // Se havia um vault ativo anterior, carrega-o
@@ -336,6 +344,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         recentVaults: newState.recentVaults,
         theme: newState.theme,
         sidebarWidth: newState.sidebarWidth,
+        editorWideMode: newState.editorWideMode,
       });
 
       return { theme: nextTheme };
@@ -357,6 +366,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         recentVaults: newState.recentVaults,
         theme: newState.theme,
         sidebarWidth: newState.sidebarWidth,
+        editorWideMode: newState.editorWideMode,
       });
 
       return { theme };
@@ -370,8 +380,22 @@ export const useAppStore = create<AppState>((set, get) => ({
         recentVaults: newState.recentVaults,
         theme: newState.theme,
         sidebarWidth: newState.sidebarWidth,
+        editorWideMode: newState.editorWideMode,
       });
       return { sidebarWidth: width };
+    }),
+
+  toggleEditorWideMode: () =>
+    set((state) => {
+      const newState = { ...state, editorWideMode: !state.editorWideMode };
+      saveConfigHelper({
+        currentVault: newState.currentVault,
+        recentVaults: newState.recentVaults,
+        theme: newState.theme,
+        sidebarWidth: newState.sidebarWidth,
+        editorWideMode: newState.editorWideMode,
+      });
+      return { editorWideMode: newState.editorWideMode };
     }),
 
   loadVault: async (path: string) => {
@@ -406,6 +430,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         recentVaults: newState.recentVaults,
         theme: newState.theme,
         sidebarWidth: newState.sidebarWidth,
+        editorWideMode: newState.editorWideMode,
       });
 
       return newState;
@@ -458,6 +483,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       recentVaults: newState.recentVaults,
       theme: newState.theme,
       sidebarWidth: newState.sidebarWidth,
+      editorWideMode: get().editorWideMode,
     });
     set(newState);
   },

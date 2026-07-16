@@ -63,6 +63,7 @@ export default function App() {
     activeNoteBacklinks,
     swapViews,
     platform,
+    editorWideMode,
   } = useAppStore();
 
   const isMac = platform === 'darwin' || platform === 'macos';
@@ -365,7 +366,9 @@ export default function App() {
                 {centerView === 'editor' && activeTab ? (
                   /* Active Note Panel */
                   <div className="flex-1 p-6 flex flex-col overflow-hidden animate-in fade-in duration-200">
-                    <div className="max-w-3xl w-full mx-auto h-full flex flex-col">
+                    {/* E1 (Spec 25): coluna de leitura confortável (teto 900px) OU largura
+                        total via toggle no StatusBar — persiste no config */}
+                    <div className={`w-full mx-auto h-full flex flex-col ${editorWideMode ? '' : 'max-w-[900px]'}`}>
                       {activeNoteContent !== null && (
                         <MarkdownEditor
                           content={activeNoteContent}
