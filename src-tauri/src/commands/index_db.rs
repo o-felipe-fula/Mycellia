@@ -32,6 +32,13 @@ pub struct SearchResult {
     pub snippet: String,
 }
 
+// E2 Fatia A (Spec 28): tag agregada com contagem de notas — alimenta o painel de tags
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct TagCount {
+    pub tag: String,
+    pub count: i64,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct NoteInfo {
     pub path: String,
@@ -559,11 +566,41 @@ pub fn search_notes<R: tauri::Runtime>(app: tauri::AppHandle<R>, query: String) 
         return Ok(Vec::new());
     }
     let conn = conn_lock.as_mut().ok_or_else(|| "Conexão com o banco perdida".to_string())?;
-    
+
+    // E2 Fatia A (Spec 28): query começando com '#' é busca POR TAG — filtra pela
+    // tabela de tags (exata, case-insensitive, + filhas aninhadas tag/sub), não pelo FTS
+    if let Some(tag_query) = query.trim().strip_prefix('#') {
+        let tag_query = tag_query.trim();
+        if tag_query.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut stmt = conn.prepare(
+            "SELECT n.path, n.title, '#' || MIN(t.tag)
+             FROM tags t JOIN notes n ON n.path = t.note_path
+             WHERE t.tag = ?1 COLLATE NOCASE OR t.tag LIKE ?1 || '/%'
+             GROUP BY n.path, n.title
+             ORDER BY n.title COLLATE NOCASE LIMIT 50"
+        ).map_err(|e| format!("Erro na preparação do SQL de tags: {}", e))?;
+
+        let rows = stmt.query_map([tag_query], |row| {
+            Ok(SearchResult {
+                path: row.get(0)?,
+                title: row.get(1)?,
+                snippet: row.get(2)?,
+            })
+        }).map_err(|e| format!("Erro na busca por tag: {}", e))?;
+
+        let mut results = Vec::new();
+        for row in rows.flatten() {
+            results.push(row);
+        }
+        return Ok(results);
+    }
+
     let mut stmt = conn.prepare(
-        "SELECT path, title, snippet(notes_fts, -1, '<b>', '</b>', '...', 16) 
-         FROM notes_fts 
-         WHERE notes_fts MATCH ? 
+        "SELECT path, title, snippet(notes_fts, -1, '<b>', '</b>', '...', 16)
+         FROM notes_fts
+         WHERE notes_fts MATCH ?
          ORDER BY bm25(notes_fts) LIMIT 50"
     ).map_err(|e| format!("Erro na preparação do SQL FTS5: {}", e))?;
     
@@ -597,7 +634,31 @@ pub fn get_matching_paths<R: tauri::Runtime>(app: tauri::AppHandle<R>, query: St
         return Ok(Vec::new());
     }
     let conn = conn_lock.as_mut().ok_or_else(|| "Conexão com o banco perdida".to_string())?;
-    
+
+    // E2 Fatia A (Spec 28): mesma semântica de tag do search_notes — o grafo acende
+    // as notas da tag pesquisada
+    if let Some(tag_query) = query.trim().strip_prefix('#') {
+        let tag_query = tag_query.trim();
+        if tag_query.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT note_path FROM tags
+             WHERE tag = ?1 COLLATE NOCASE OR tag LIKE ?1 || '/%'"
+        ).map_err(|e| format!("Erro na preparação do SQL de tags (paths): {}", e))?;
+
+        let rows = stmt.query_map([tag_query], |row| {
+            let path: String = row.get(0)?;
+            Ok(path)
+        }).map_err(|e| format!("Erro na busca por tag (paths): {}", e))?;
+
+        let mut results = Vec::new();
+        for row in rows.flatten() {
+            results.push(row);
+        }
+        return Ok(results);
+    }
+
     let mut stmt = conn.prepare(
         "SELECT path FROM notes_fts WHERE notes_fts MATCH ?"
     ).map_err(|e| format!("Erro na preparação do SQL FTS5 matching paths: {}", e))?;
@@ -612,6 +673,41 @@ pub fn get_matching_paths<R: tauri::Runtime>(app: tauri::AppHandle<R>, query: St
         results.push(row);
     }
     
+    Ok(results)
+}
+
+// Comando Tauri (E2 Fatia A — Spec 28): todas as tags do vault com contagem de notas.
+// Alimenta o painel de tags; a hierarquia aninhada (a/b/c) é montada no front.
+#[tauri::command]
+pub fn get_all_tags<R: tauri::Runtime>(app: tauri::AppHandle<R>) -> Result<Vec<TagCount>, String> {
+    let state = app.state::<DbState>();
+
+    if state.is_rebuilding.load(Ordering::Relaxed) || state.is_indexing.load(Ordering::Relaxed) {
+        return Ok(Vec::new());
+    }
+
+    let mut conn_lock = state.conn.lock().map_err(|e| format!("Erro no lock de conexão: {}", e))?;
+    if conn_lock.is_none() {
+        return Ok(Vec::new());
+    }
+    let conn = conn_lock.as_mut().ok_or_else(|| "Conexão com o banco perdida".to_string())?;
+
+    let mut stmt = conn.prepare(
+        "SELECT tag, COUNT(*) FROM tags GROUP BY tag ORDER BY tag COLLATE NOCASE"
+    ).map_err(|e| format!("Erro na preparação do SQL de get_all_tags: {}", e))?;
+
+    let rows = stmt.query_map([], |row| {
+        Ok(TagCount {
+            tag: row.get(0)?,
+            count: row.get(1)?,
+        })
+    }).map_err(|e| format!("Erro na leitura das tags: {}", e))?;
+
+    let mut results = Vec::new();
+    for row in rows.flatten() {
+        results.push(row);
+    }
+
     Ok(results)
 }
 

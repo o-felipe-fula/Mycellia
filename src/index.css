@@ -566,6 +566,22 @@ textarea:focus-visible,
   color: var(--text-secondary);
 }
 
+/* ===== #tags no editor (E2 Fatia A — Spec 28) ===== */
+.cm-hashtag {
+  color: var(--tag);
+  background-color: var(--tag-muted);
+  border-radius: 6px;
+  padding: 1px 5px;
+  font-size: 0.9em;
+  cursor: pointer;
+  transition: filter 0.1s ease;
+}
+
+.cm-hashtag:hover {
+  filter: brightness(1.25);
+  text-decoration: underline;
+}
+
 /* ===== Toolbar flutuante de seleção (E1.5 — Spec 26) ===== */
 .cm-tooltip.mycellia-seltoolbar,
 .mycellia-seltoolbar {

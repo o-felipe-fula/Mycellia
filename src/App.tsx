@@ -13,10 +13,12 @@ import {
   ArrowLeftRight,
   Link2,
   Activity,
+  Hash,
 } from 'lucide-react';
 import FileTree from './components/FileTree';
 import MarkdownEditor from './components/MarkdownEditor';
 import BacklinksPanel from './components/BacklinksPanel';
+import TagsPanel from './components/TagsPanel';
 import { ToastContainer } from './components/ToastContainer';
 import { GraphView } from './components/GraphView';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -86,6 +88,13 @@ export default function App() {
         icon: Activity,
         disabled: false,
         show: centerView !== 'graph',
+      },
+      {
+        id: 'tags' as const,
+        label: 'Tags',
+        icon: Hash,
+        disabled: false,
+        show: true,
       },
       {
         id: 'editor' as const,
@@ -359,9 +368,9 @@ export default function App() {
                   <div className="flex items-center px-2 h-full flex-shrink-0 border-l border-[var(--border-subtle)] bg-[var(--substrate-base)]">
                     <button
                       onClick={() => swapViews()}
-                      disabled={rightView === 'backlinks'}
+                      disabled={rightView === 'backlinks' || rightView === 'tags'}
                       className={`p-1 rounded transition-all ${
-                        rightView === 'backlinks'
+                        rightView === 'backlinks' || rightView === 'tags'
                           ? 'opacity-40 cursor-not-allowed text-[var(--text-muted)] bg-transparent'
                           : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--substrate-raised)] cursor-pointer'
                       }`}
@@ -446,9 +455,9 @@ export default function App() {
                     {/* Swap Views button */}
                     <button
                       onClick={() => swapViews()}
-                      disabled={rightView === 'backlinks'}
+                      disabled={rightView === 'backlinks' || rightView === 'tags'}
                       className={`p-1.5 rounded transition-all ${
-                        rightView === 'backlinks'
+                        rightView === 'backlinks' || rightView === 'tags'
                           ? 'opacity-40 cursor-not-allowed text-[var(--text-muted)] bg-transparent'
                           : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--substrate-raised)] cursor-pointer'
                       }`}
@@ -472,6 +481,8 @@ export default function App() {
                 <div className="flex-1 overflow-hidden relative">
                   {rightView === 'backlinks' ? (
                     <BacklinksPanel />
+                  ) : rightView === 'tags' ? (
+                    <TagsPanel />
                   ) : rightView === 'graph' ? (
                     <div className="w-full h-full relative overflow-hidden">
                       <GraphView />

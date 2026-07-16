@@ -22,6 +22,7 @@ import {
 } from '../editor/extensions';
 import { slashMenuCompletion, calloutTypeCompletion } from '../editor/slashMenu';
 import { selectionToolbar } from '../editor/selectionToolbar';
+import { hashtagExtension } from '../editor/hashtags';
 import PropertiesPanel from './PropertiesPanel';
 
 interface MarkdownEditorProps {
@@ -36,6 +37,7 @@ const buildDecorationExtensions = () => [
   mermaidThemePlugin,
   imagePreviewExtension(),
   wikiLinkExtension(),
+  hashtagExtension(), // E2 Fatia A (Spec 28): chips de #tag clicáveis
 ];
 
 export default function MarkdownEditor({ content, onChange }: MarkdownEditorProps) {
@@ -160,6 +162,18 @@ export default function MarkdownEditor({ content, onChange }: MarkdownEditorProp
               const targetName = wikiLinkEl.getAttribute('data-target');
               if (targetName) {
                 useAppStore.getState().handleWikiLinkClick(targetName);
+                return true;
+              }
+            }
+
+            // E2 Fatia A (Spec 28): clique em #tag vira busca `#tag` (painel + grafo)
+            const hashtagEl = target.closest('.cm-hashtag');
+            if (hashtagEl) {
+              const tag = hashtagEl.getAttribute('data-tag');
+              if (tag) {
+                const store = useAppStore.getState();
+                store.setLeftPanelMode('search');
+                store.setGraphSearchQuery(`#${tag}`);
                 return true;
               }
             }

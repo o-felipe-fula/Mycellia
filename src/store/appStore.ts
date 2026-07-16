@@ -36,6 +36,7 @@ export type {
   GraphNode,
   GraphLink,
   SearchResult,
+  TagCount,
   GraphData,
   GraphPosition,
   AppConfig,
@@ -78,7 +79,7 @@ export interface AppState {
   isLeftPanelOpen: boolean;
   isRightPanelOpen: boolean;
   centerView: 'editor' | 'graph';
-  rightView: 'backlinks' | 'graph' | 'editor';
+  rightView: 'backlinks' | 'graph' | 'editor' | 'tags';
   platform: string;
   rightPanelWidth: number;
   isNoteDirty: boolean;
@@ -138,7 +139,7 @@ export interface AppState {
   toggleRightPanel: () => void;
   setRightPanelWidth: (width: number) => void;
   setCenterView: (view: 'editor' | 'graph') => void;
-  setRightView: (view: 'backlinks' | 'graph' | 'editor') => void;
+  setRightView: (view: 'backlinks' | 'graph' | 'editor' | 'tags') => void;
   swapViews: () => void;
 
   // E1 (Spec 25): largura da linha do editor (false = confortável, true = cheia)

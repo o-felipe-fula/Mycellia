@@ -71,6 +71,12 @@ export interface SearchResult {
   snippet: string;
 }
 
+// E2 Fatia A (Spec 28): tag agregada vinda do get_all_tags
+export interface TagCount {
+  tag: string;
+  count: number;
+}
+
 export interface GraphData {
   nodes: GraphNode[];
   links: GraphLink[];

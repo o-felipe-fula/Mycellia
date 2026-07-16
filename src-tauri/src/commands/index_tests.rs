@@ -1609,5 +1609,75 @@ Link vazio (deve ser ignorado): [[]].
             }
         }
     }
+
+    // =========================================================================
+    // TESTE E2 Fatia A (Spec 28): semântica da busca por tag + agregação
+    // (mesmos SQLs dos comandos get_all_tags / search_notes / get_matching_paths)
+    // =========================================================================
+    #[test]
+    fn test_tag_search_and_aggregation_semantics() {
+        let conn = create_test_db();
+
+        index_note_in_db(&conn, "C:\\V\\a.md", "# A\ncorpo #projeto/mycellia e #foco", "a.md", 1);
+        index_note_in_db(&conn, "C:\\V\\b.md", "# B\n#projeto no texto", "b.md", 2);
+        index_note_in_db(
+            &conn,
+            "C:\\V\\c.md",
+            "---\ntags: [projeto/mycellia]\n---\n# C\nsó frontmatter",
+            "c.md",
+            3,
+        );
+        index_note_in_db(&conn, "C:\\V\\d.md", "# D\nsem tag nenhuma", "d.md", 4);
+
+        // 1. Agregação com contagem (SQL do get_all_tags) — taxonomia unificada:
+        //    frontmatter + inline caem na MESMA tabela
+        let mut stmt = conn
+            .prepare("SELECT tag, COUNT(*) FROM tags GROUP BY tag ORDER BY tag COLLATE NOCASE")
+            .unwrap();
+        let rows: Vec<(String, i64)> = stmt
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .flatten()
+            .collect();
+        assert_eq!(
+            rows,
+            vec![
+                ("foco".to_string(), 1),
+                ("projeto".to_string(), 1),
+                ("projeto/mycellia".to_string(), 2),
+            ]
+        );
+
+        // 2. Buscar a tag PAI inclui as filhas aninhadas (SQL do get_matching_paths)
+        let mut stmt = conn
+            .prepare("SELECT DISTINCT note_path FROM tags WHERE tag = ?1 COLLATE NOCASE OR tag LIKE ?1 || '/%'")
+            .unwrap();
+        let mut paths: Vec<String> = stmt.query_map(["projeto"], |r| r.get(0)).unwrap().flatten().collect();
+        paths.sort();
+        assert_eq!(paths, vec!["C:\\V\\a.md", "C:\\V\\b.md", "C:\\V\\c.md"]);
+
+        // 3. Tag folha só pega quem tem a folha
+        let mut leaf: Vec<String> = stmt
+            .query_map(["projeto/mycellia"], |r| r.get(0))
+            .unwrap()
+            .flatten()
+            .collect();
+        leaf.sort();
+        assert_eq!(leaf, vec!["C:\\V\\a.md", "C:\\V\\c.md"]);
+
+        // 4. Igualdade case-insensitive
+        let upper: Vec<String> = stmt.query_map(["FOCO"], |r| r.get(0)).unwrap().flatten().collect();
+        assert_eq!(upper, vec!["C:\\V\\a.md"]);
+
+        // 5. Nota sem tag não aparece em nenhuma busca por tag
+        let all_tagged: Vec<String> = conn
+            .prepare("SELECT DISTINCT note_path FROM tags")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .flatten()
+            .collect();
+        assert!(!all_tagged.contains(&"C:\\V\\d.md".to_string()));
+    }
 }
 

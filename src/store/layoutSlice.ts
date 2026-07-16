@@ -12,7 +12,7 @@ export const createLayoutSlice = (set: Set) => ({
   isLeftPanelOpen: true,
   isRightPanelOpen: false,
   centerView: 'graph' as 'editor' | 'graph',
-  rightView: 'backlinks' as 'backlinks' | 'graph' | 'editor',
+  rightView: 'backlinks' as 'backlinks' | 'graph' | 'editor' | 'tags',
   rightPanelWidth: 300,
   // E1.6 (Spec 27): modo Fonte = corpo da nota 100% cru, sem decorações (sessão, não persiste)
   editorSourceMode: false,
@@ -22,7 +22,7 @@ export const createLayoutSlice = (set: Set) => ({
   toggleRightPanel: () => set((state) => ({ isRightPanelOpen: !state.isRightPanelOpen })),
   setRightPanelWidth: (width: number) => set({ rightPanelWidth: width }),
   setCenterView: (view: 'editor' | 'graph') => set((state) => ensureDifferentViews(view, state.rightView)),
-  setRightView: (view: 'backlinks' | 'graph' | 'editor') => set((state) => {
+  setRightView: (view: 'backlinks' | 'graph' | 'editor' | 'tags') => set((state) => {
     let nextCenter = state.centerView;
     if (view === 'editor' && state.centerView === 'editor') {
       nextCenter = 'graph';
@@ -40,7 +40,7 @@ export const createLayoutSlice = (set: Set) => ({
     const nextRight = state.centerView === 'editor' ? 'editor' : 'graph';
     return {
       centerView: nextCenter,
-      rightView: nextRight as 'backlinks' | 'graph' | 'editor'
+      rightView: nextRight as 'backlinks' | 'graph' | 'editor' | 'tags'
     };
   }),
   toggleEditorSourceMode: () => set((state) => ({ editorSourceMode: !state.editorSourceMode })),
