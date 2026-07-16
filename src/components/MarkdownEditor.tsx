@@ -24,6 +24,7 @@ import {
 import { slashMenuCompletion, calloutTypeCompletion } from '../editor/slashMenu';
 import { selectionToolbar } from '../editor/selectionToolbar';
 import { hashtagExtension } from '../editor/hashtags';
+import { invalidateEmbedCache } from '../editor/noteEmbed';
 import PropertiesPanel from './PropertiesPanel';
 
 interface MarkdownEditorProps {
@@ -312,8 +313,9 @@ export default function MarkdownEditor({ content, onChange }: MarkdownEditorProp
   // recém-colada/criada aparece sem precisar reabrir a nota
   useEffect(() => {
     viewRef.current?.dispatch({ effects: fileTreeChangedEffect.of() });
-    // E2 Fatia B: árvore mudou → headings cacheados podem estar velhos
+    // E2 Fatias B/C: árvore mudou → headings e conteúdo de embeds podem estar velhos
     invalidateHeadingsCache();
+    invalidateEmbedCache();
   }, [fileTree]);
 
   // E2 Fatia B (Spec 28): consome o scroll pendente de [[Nota#Título]] — acha o heading

@@ -220,6 +220,13 @@ function linkifyWikiLinks(root: ParentNode) {
     let lastIndex = 0;
     let match;
     while ((match = WIKI_LINK_RE.exec(text)) !== null) {
+      // `![[X]]` é EMBED, não wiki-link (mesmo guard do editor) — fica como texto
+      // literal pro transform de embeds da Fatia C consumir
+      if (match.index > 0 && text[match.index - 1] === '!') {
+        frag.appendChild(document.createTextNode(text.slice(lastIndex, match.index + match[0].length)));
+        lastIndex = match.index + match[0].length;
+        continue;
+      }
       if (match.index > lastIndex) {
         frag.appendChild(document.createTextNode(text.slice(lastIndex, match.index)));
       }

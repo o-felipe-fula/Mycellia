@@ -577,6 +577,55 @@ textarea:focus-visible,
   color: var(--text-secondary);
 }
 
+/* ===== Transclusão de nota ![[Nota]] (E2 Fatia C — Spec 28) ===== */
+.mycellia-embed {
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--accent-dim);
+  border-radius: 8px;
+  background: var(--substrate-surface);
+  padding: 8px 12px;
+  font-family: var(--font-sans);
+}
+
+.mycellia-embed .mycellia-embed {
+  margin-top: 6px;
+  background: var(--substrate-raised);
+}
+
+.mycellia-embed-header {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: 0 0 2px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--accent);
+  cursor: pointer;
+  transition: color 0.1s ease;
+}
+
+.mycellia-embed-header::before {
+  content: '⇱ ';
+  color: var(--text-muted);
+}
+
+.mycellia-embed-header:hover {
+  color: var(--accent-bright);
+  text-decoration: underline;
+}
+
+.mycellia-embed-missing {
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.mycellia-embed-static {
+  cursor: pointer;
+}
+
 /* ===== #tags no editor (E2 Fatia A — Spec 28) ===== */
 .cm-hashtag {
   color: var(--tag);

@@ -7,12 +7,14 @@ import { EditorView, Decoration, type DecorationSet } from '@codemirror/view';
 import { syntaxTree, ensureSyntaxTree } from '@codemirror/language';
 import type { CompletionContext, CompletionResult } from '@codemirror/autocomplete';
 import type { SyntaxNode } from '@lezer/common';
+import { invoke } from '@tauri-apps/api/core';
 import { useAppStore } from '../store/appStore';
 import { themeChangeEffect, fileTreeChangedEffect, type DecSpec } from './shared';
 import { EmptyWidget, TableWidget, BulletWidget, TaskMarkerWidget, ImageWidget, WikiLinkSepWidget } from './widgets';
 import { getFencedCodeContent, resolveImagePath, isInsideCodeBlock, isRangeInCode, hasChildTaskMarker } from './utils';
 import { MermaidWidget } from './mermaid';
 import { CalloutWidget, isCalloutSource } from './callouts';
+import { NoteEmbedWidget, resolveNoteEmbed, getEmbedVersion } from './noteEmbed';
 import { collectInlineHtmlSpecs, HtmlBlockWidget, type HtmlTagRange } from './htmlPreview';
 
 export const wikiLinkExtension = () => {
@@ -181,11 +183,12 @@ export function parseHeadings(content: string): string[] {
   return headings;
 }
 
+// Import estático (mesma lição do noteEmbed): import() dinâmico do módulo Tauri pode
+// resolver instância não-mockada nos testes e não traz ganho real de bundle
 async function getHeadingsFor(path: string): Promise<string[]> {
   if (headingsCache?.path === path) {
     return headingsCache.headings;
   }
-  const { invoke } = await import('@tauri-apps/api/core');
   const content = await invoke<string>('read_file', { path });
   const headings = parseHeadings(content);
   headingsCache = { path, headings };
@@ -587,6 +590,21 @@ export const imagePreviewExtension = () => {
         }
 
         const filename = wikiMatch[1];
+
+        // E2 Fatia C (Spec 28): `![[Nota]]` com alvo que é NOTA vira transclusão;
+        // imagem/inexistente segue no fluxo de imagem de sempre (compat total)
+        const embedTarget = resolveNoteEmbed(filename.trim());
+        if (embedTarget) {
+          specs.push({
+            from: start,
+            to: end,
+            dec: Decoration.replace({
+              widget: new NoteEmbedWidget(embedTarget, getEmbedVersion()),
+            }),
+          });
+          continue;
+        }
+
         const { url: resolvedSrc, exists } = resolveImagePath(filename, activeNotePath, vaultPath, fileTree);
 
         specs.push({
