@@ -5,7 +5,7 @@ import { open as openDirectory } from '@tauri-apps/plugin-dialog';
 import { FolderOpen, PlusCircle, Sun, Moon, FileText } from 'lucide-react';
 
 export default function WelcomeScreen() {
-  const { theme, toggleTheme, recentVaults, loadVault } = useAppStore();
+  const { theme, toggleTheme, recentVaults, loadVault, notify } = useAppStore();
 
   const handleOpenVault = async () => {
     try {
@@ -19,7 +19,7 @@ export default function WelcomeScreen() {
       }
     } catch (err) {
       console.error('Failed to open vault:', err);
-      alert('Falha ao abrir o diretório do vault.');
+      notify('error', 'Falha ao abrir o diretório do vault.');
     }
   };
 
@@ -35,7 +35,7 @@ export default function WelcomeScreen() {
       }
     } catch (err) {
       console.error('Failed to create vault:', err);
-      alert('Falha ao selecionar diretório para criar o vault.');
+      notify('error', 'Falha ao selecionar diretório para criar o vault.');
     }
   };
 

@@ -28,6 +28,8 @@ import StatusBar from './components/StatusBar';
 import WelcomeScreen from './components/WelcomeScreen';
 import ConflictModal from './components/ConflictModal';
 import GlobalErrorBanner from './components/GlobalErrorBanner';
+import { InputModal } from './components/InputModal';
+import { validateItemName } from './utils/validateItemName';
 import { usePanelResize } from './hooks/usePanelResize';
 import { useGlobalShortcuts } from './hooks/useGlobalShortcuts';
 
@@ -97,18 +99,28 @@ export default function App() {
 
   const { handleMouseDown, handleRightMouseDown } = usePanelResize();
 
-  const handleCreateNewFile = React.useCallback(async () => {
+  // UI polish (2026-07-16): modal do DS no lugar do prompt() nativo
+  const [showNewNoteModal, setShowNewNoteModal] = React.useState(false);
+
+  const handleCreateNewFile = React.useCallback(() => {
     if (!currentVault) return;
-    const name = prompt('Digite o nome da nova nota (ex: Minha Nota):');
-    if (name) {
+    setShowNewNoteModal(true);
+  }, [currentVault]);
+
+  const confirmCreateNewFile = React.useCallback(
+    async (name: string) => {
+      if (!currentVault) return;
       const fullName = name.endsWith('.md') ? name : `${name}.md`;
       try {
         await createItem(currentVault, fullName, false);
+        setShowNewNoteModal(false);
       } catch (err) {
-        alert(`Erro ao criar arquivo: ${err}`);
+        setShowNewNoteModal(false);
+        useAppStore.getState().notify('error', `Erro ao criar arquivo: ${err}`);
       }
-    }
-  }, [currentVault, createItem]);
+    },
+    [currentVault, createItem],
+  );
 
   // Inicializa o app e carrega configurações locais
   useEffect(() => {
@@ -508,6 +520,17 @@ export default function App() {
       <ConflictModal />
       <GlobalErrorBanner />
       <ToastContainer />
+      {showNewNoteModal && (
+        <InputModal
+          title="Nova nota"
+          placeholder="Nome da nota (ex: Minha Nota)"
+          confirmLabel="Criar nota"
+          icon={<FilePlus className="w-5 h-5 text-[var(--accent)]" />}
+          validate={validateItemName}
+          onConfirm={confirmCreateNewFile}
+          onCancel={() => setShowNewNoteModal(false)}
+        />
+      )}
       {currentVault && <StatusBar />}
     </div>
   );
