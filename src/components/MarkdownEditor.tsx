@@ -2,7 +2,7 @@
 // widgets, tema e o subsistema mermaid vivem em src/editor/* (extraídos intactos). O
 // onChange alimenta o autosave do store (fluxo de save sagrado) — a fiação daqui não muda.
 import { useEffect, useRef, useState } from 'react';
-import { EditorState, Compartment } from '@codemirror/state';
+import { EditorState, Compartment, Transaction } from '@codemirror/state';
 import { EditorView, ViewUpdate, keymap } from '@codemirror/view';
 import { PenLine, Code2 } from 'lucide-react';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
@@ -293,11 +293,17 @@ export default function MarkdownEditor({ content, onChange }: MarkdownEditorProp
   }, [activeTab]); // Reinicializa apenas quando mudamos de nota para recriar o estado limpo
 
   // Atualiza o documento se o conteúdo mudar externamente (por exemplo, ao alternar de aba)
+  // 🔴 BUG-08 (2026-07-16): este replace NUNCA pode entrar no histórico de undo. Sem a
+  // anotação, um Ctrl+Z logo após trocar de aba DESFAZIA o load (o view nasce com o
+  // conteúdo da nota anterior enquanto a nova carrega async) → o buffer voltava a ser a
+  // NOTA ANTERIOR → autosave gravava esse conteúdo NO ARQUIVO DA NOTA NOVA (corrupção
+  // cross-nota — Incidente classe #1). Pego ao vivo via CDP no Review Gate da Fatia B.
   useEffect(() => {
     const view = viewRef.current;
     if (view && view.state.doc.toString() !== content) {
       view.dispatch({
         changes: { from: 0, to: view.state.doc.length, insert: content },
+        annotations: Transaction.addToHistory.of(false),
       });
     }
   }, [content]);
