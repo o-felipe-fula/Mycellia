@@ -15,6 +15,7 @@ vi.mock('@tauri-apps/api/core', () => ({
         recent_vaults: [],
         theme: 'dark',
         sidebar_width: 260,
+        editor_wide_mode: false,
       });
     }
     return Promise.resolve();

@@ -93,4 +93,5 @@ export interface AppConfig {
   recent_vaults: string[];
   theme: 'light' | 'dark';
   sidebar_width: number;
+  editor_wide_mode: boolean;
 }

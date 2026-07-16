@@ -12,6 +12,10 @@ pub struct AppConfig {
     pub recent_vaults: Vec<String>,
     pub theme: String,
     pub sidebar_width: u32,
+    // E1 (Spec 25): largura da linha do editor — false = coluna confortável, true = cheia.
+    // serde(default) mantém configs antigos carregáveis sem migração.
+    #[serde(default)]
+    pub editor_wide_mode: bool,
 }
 
 impl Default for AppConfig {
@@ -21,6 +25,7 @@ impl Default for AppConfig {
             recent_vaults: Vec::new(),
             theme: "dark".to_string(), // default theme is Bioluminescent Dark
             sidebar_width: 260,
+            editor_wide_mode: false,
         }
     }
 }
