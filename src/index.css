@@ -559,3 +559,68 @@ textarea:focus-visible,
   padding: 4px 8px;
 }
 
+/* ===== Toolbar flutuante de seleção (E1.5 — Spec 26) ===== */
+.cm-tooltip.mycellia-seltoolbar,
+.mycellia-seltoolbar {
+  display: flex;
+  gap: 1px;
+  padding: 3px;
+  background: var(--substrate-overlay) !important;
+  border: 1px solid var(--border-default) !important;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  z-index: 40;
+}
+
+.mycellia-seltoolbar button {
+  min-width: 26px;
+  height: 26px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-family: var(--font-sans);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.1s ease, color 0.1s ease;
+}
+
+.mycellia-seltoolbar button:hover {
+  background: var(--substrate-raised);
+  color: var(--text-primary);
+}
+
+.mycellia-seltoolbar button.is-bold {
+  font-weight: 700;
+}
+
+.mycellia-seltoolbar button.is-italic {
+  font-style: italic;
+}
+
+.mycellia-seltoolbar button.is-strike {
+  text-decoration: line-through;
+}
+
+.mycellia-seltoolbar button.is-mark {
+  background: rgba(230, 180, 92, 0.25);
+}
+
+.mycellia-seltoolbar button.is-mark:hover {
+  background: rgba(230, 180, 92, 0.4);
+  color: var(--text-primary);
+}
+
+.mycellia-seltoolbar button.is-underline {
+  text-decoration: underline;
+}
+
+.mycellia-seltoolbar button.is-code {
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+

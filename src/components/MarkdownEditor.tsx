@@ -19,6 +19,8 @@ import {
   livePreviewExtension,
   imagePreviewExtension,
 } from '../editor/extensions';
+import { slashMenuCompletion, calloutTypeCompletion } from '../editor/slashMenu';
+import { selectionToolbar } from '../editor/selectionToolbar';
 import PropertiesPanel from './PropertiesPanel';
 
 interface MarkdownEditorProps {
@@ -122,7 +124,10 @@ export default function MarkdownEditor({ content, onChange }: MarkdownEditorProp
         mermaidThemePlugin,
         imagePreviewExtension(),
         wikiLinkExtension(),
-        autocompletion({ override: [wikiLinkAutocomplete] }),
+        // E1.5 (Spec 26): slash menu + tipos de callout entram na MESMA infra de
+        // autocomplete dos wiki-links; toolbar de seleção via Tooltip API
+        autocompletion({ override: [wikiLinkAutocomplete, slashMenuCompletion, calloutTypeCompletion] }),
+        selectionToolbar(),
         EditorView.lineWrapping,
         EditorView.domEventHandlers({
           click(event, view) {
