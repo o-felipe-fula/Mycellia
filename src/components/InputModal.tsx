@@ -2,6 +2,7 @@
 // nativos do webview ("feia que só a porra" — Felipe). DNA visual do ConflictModal:
 // overlay blur + glass-card. Enter confirma, Esc cancela, erro inline, autofocus.
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { ReactNode } from 'react';
 
 interface InputModalProps {
@@ -57,7 +58,9 @@ export function InputModal({
     }
   };
 
-  return (
+  // Portal no body (mesmo remédio do ContextMenu): o backdrop-filter dos painéis de
+  // vidro cria containing block e prenderia o `fixed` dentro da coluna da sidebar
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md animate-in fade-in duration-200"
       onMouseDown={(e) => {
@@ -110,7 +113,8 @@ export function InputModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -133,7 +137,7 @@ export function ConfirmModal({ title, message, confirmLabel, danger = false, onC
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [onCancel, onConfirm]);
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md animate-in fade-in duration-200"
       onMouseDown={(e) => {
@@ -162,6 +166,7 @@ export function ConfirmModal({ title, message, confirmLabel, danger = false, onC
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
