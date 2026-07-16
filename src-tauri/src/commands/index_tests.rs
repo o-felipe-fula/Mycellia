@@ -779,6 +779,103 @@ Link vazio (deve ser ignorado): [[]].
         let _ = fs::remove_dir_all(&temp_dir_backlinks);
     }
 
+    // Parser: [[X.md]] normaliza para X (Obsidian-compat) e embed de imagem NÃO vira link.
+    // Transclusão de NOTA (![[Nota]], sem extensão de imagem) continua sendo conexão.
+    #[test]
+    fn test_wiki_link_normalizes_md_and_filters_image_embeds() {
+        let content = "Body [[CLAUDE.md]] e [[Nota Normal]] e ![[Pasted image 20260703.png]] \
+                       e ![[Transclusao De Nota]] e [[20_Atlas/Sub/Nota]] e [[Foto.JPG]]";
+        let meta = parse_markdown(content, "test.md");
+        let links: HashSet<&str> = meta.links.iter().map(|s| s.as_str()).collect();
+
+        assert!(links.contains("CLAUDE"), "[[CLAUDE.md]] deve normalizar para CLAUDE");
+        assert!(!links.contains("CLAUDE.md"), "a extensão .md não deve sobrar no link");
+        assert!(links.contains("Nota Normal"), "link normal intacto");
+        assert!(links.contains("20_Atlas/Sub/Nota"), "link path-style intacto");
+        assert!(links.contains("Transclusao De Nota"), "transclusão de NOTA continua sendo link");
+        assert!(!links.iter().any(|l| l.contains("Pasted image")), "embed de imagem .png NÃO é link");
+        assert!(!links.iter().any(|l| l.eq_ignore_ascii_case("foto") || l.contains("Foto")), "embed de imagem .JPG (maiúsculo) NÃO é link");
+    }
+
+    // TESTE END-TO-END do bug do relato: [[Nota 2.md]] (com extensão) numa nota deve
+    // RESOLVER para a Nota 2 existente — não aparecer como link "a criar". Passa pelo
+    // caminho real parse→index→resolve→outgoing (o teste que insere linhas prontas não pega).
+    #[test]
+    fn test_outgoing_link_with_md_extension_resolves_to_existing_note() {
+        let mut conn = create_test_db();
+        let temp = std::env::temp_dir().join("mycellia_test_md_ext_resolve");
+        let _ = fs::remove_dir_all(&temp);
+        let _ = fs::create_dir_all(&temp);
+        let vault = temp.to_string_lossy().into_owned();
+
+        let n1 = temp.join("Nota 1.md");
+        let n2 = temp.join("Nota 2.md");
+        fs::write(&n1, "Aponto para [[Nota 2.md]] com extensao explicita").unwrap();
+        fs::write(&n2, "Conteudo da nota 2").unwrap();
+
+        // Indexa as duas notas pelo caminho de produção e resolve os links
+        let tx = conn.transaction().unwrap();
+        crate::commands::index_db::index_single_file_in_tx(&tx, &n1, 100).unwrap();
+        crate::commands::index_db::index_single_file_in_tx(&tx, &n2, 100).unwrap();
+        crate::commands::index_db::re_resolve_all_links(&tx, &vault).unwrap();
+        tx.commit().unwrap();
+
+        // O link de saída da Nota 1 deve estar RESOLVIDO para a Nota 2 (target_path != NULL)
+        let n1_path = n1.to_string_lossy().into_owned();
+        let outgoing = crate::commands::index_db::query_outgoing_links(&conn, &n1_path).unwrap();
+        assert_eq!(outgoing.len(), 1, "deve haver exatamente 1 link de saída");
+        assert_eq!(
+            outgoing[0].target_path,
+            Some(n2.to_string_lossy().into_owned()),
+            "[[Nota 2.md]] deve resolver para a Nota 2 existente, não ficar 'a criar'"
+        );
+
+        let _ = fs::remove_dir_all(&temp);
+    }
+
+    // Links de SAÍDA (o espelho do get_backlinks): a nota origem deve enxergar quem ela
+    // referencia — resolvidos (com path+título) E não-resolvidos (nota ainda não criada).
+    #[test]
+    fn test_query_outgoing_links_resolved_and_unresolved() {
+        use crate::commands::index_db::query_outgoing_links;
+
+        let conn = create_test_db();
+
+        conn.execute(
+            "INSERT INTO notes (path, title, last_modified) VALUES (?, ?, ?)",
+            rusqlite::params!["/vault/Nota 1.md", "Nota 1", 1000],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO notes (path, title, last_modified) VALUES (?, ?, ?)",
+            rusqlite::params!["/vault/Nota 2.md", "Nota 2", 1000],
+        ).unwrap();
+
+        // Nota 1 aponta para a Nota 2 (resolvido) e para uma nota inexistente (NULL)
+        conn.execute(
+            "INSERT INTO links (source_path, target_name, target_path) VALUES (?, ?, ?)",
+            rusqlite::params!["/vault/Nota 1.md", "Nota 2", "/vault/Nota 2.md"],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO links (source_path, target_name, target_path) VALUES (?, ?, NULL)",
+            rusqlite::params!["/vault/Nota 1.md", "Ainda Nao Existe"],
+        ).unwrap();
+
+        // A origem enxerga os DOIS links de saída, em ordem alfabética de target_name
+        let outgoing = query_outgoing_links(&conn, "/vault/Nota 1.md").unwrap();
+        assert_eq!(outgoing.len(), 2);
+        assert_eq!(outgoing[0].target_name, "Ainda Nao Existe");
+        assert_eq!(outgoing[0].target_path, None);
+        assert_eq!(outgoing[0].target_title, None);
+        assert_eq!(outgoing[1].target_name, "Nota 2");
+        assert_eq!(outgoing[1].target_path, Some("/vault/Nota 2.md".to_string()));
+        assert_eq!(outgoing[1].target_title, Some("Nota 2".to_string()));
+
+        // A Nota 2 não aponta para ninguém — saída vazia (o caso do relato do bug:
+        // direção de SAÍDA não pode vazar para dentro dos backlinks de entrada)
+        let outgoing_b = query_outgoing_links(&conn, "/vault/Nota 2.md").unwrap();
+        assert!(outgoing_b.is_empty());
+    }
+
     #[test]
     fn test_incremental_indexing_single_file() {
         let mut conn = create_test_db();

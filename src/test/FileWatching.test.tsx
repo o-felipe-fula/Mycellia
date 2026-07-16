@@ -61,7 +61,7 @@ describe('File Watching and Disk Synchronization tests', () => {
           return { path, basename };
         });
       }
-      if (cmd === 'get_backlinks') {
+      if (cmd === 'get_backlinks' || cmd === 'get_outgoing_links') {
         return [];
       }
       if (cmd === 'start_watching' || cmd === 'stop_watching') {

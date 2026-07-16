@@ -67,7 +67,7 @@ describe('Bug 3 Overwrite Regression Test (Self-contained Pending Save)', () => 
           return { path, basename };
         });
       }
-      if (cmd === 'get_backlinks') {
+      if (cmd === 'get_backlinks' || cmd === 'get_outgoing_links') {
         return [];
       }
       return;
