@@ -341,3 +341,221 @@ textarea:focus-visible,
   }
 }
 
+/* ===== Callouts (E1 — Spec 25): cor por tipo via --callout-rgb ===== */
+.mycellia-callout {
+  --callout-rgb: 68, 138, 255;
+  border: 1px solid rgba(var(--callout-rgb), 0.25);
+  border-left: 3px solid rgb(var(--callout-rgb));
+  background: rgba(var(--callout-rgb), 0.07);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-family: var(--font-sans);
+}
+
+.mycellia-callout .mycellia-callout {
+  margin-top: 8px;
+}
+
+.mycellia-callout-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: rgb(var(--callout-rgb));
+  font-weight: 600;
+  font-size: 0.95em;
+  user-select: none;
+}
+
+.mycellia-callout-header.foldable {
+  cursor: pointer;
+}
+
+.mycellia-callout-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.mycellia-callout-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.mycellia-callout-fold {
+  display: inline-flex;
+  margin-left: auto;
+  transform: rotate(90deg);
+  transition: transform 0.15s ease;
+}
+
+.mycellia-callout-fold svg {
+  width: 14px;
+  height: 14px;
+}
+
+.mycellia-callout.collapsed .mycellia-callout-fold {
+  transform: rotate(0deg);
+}
+
+.mycellia-callout.collapsed .mycellia-callout-body {
+  display: none;
+}
+
+.mycellia-callout-body {
+  margin-top: 6px;
+  color: var(--text-secondary);
+  font-size: 0.92em;
+  line-height: 1.55;
+  user-select: text;
+}
+
+.mycellia-callout-body p {
+  margin: 4px 0;
+}
+
+.mycellia-callout-body ul,
+.mycellia-callout-body ol {
+  margin: 4px 0;
+  padding-left: 1.4em;
+}
+
+.mycellia-callout-body ul {
+  list-style: disc;
+}
+
+.mycellia-callout-body ol {
+  list-style: decimal;
+}
+
+.mycellia-callout-body code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: var(--substrate-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+.mycellia-callout-body pre {
+  background: var(--substrate-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 8px 10px;
+  overflow-x: auto;
+  margin: 6px 0;
+}
+
+.mycellia-callout-body pre code {
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+
+.mycellia-callout-body blockquote {
+  border-left: 2px solid var(--border-strong);
+  margin: 4px 0;
+  padding-left: 10px;
+  color: var(--text-muted);
+}
+
+.mycellia-callout-body table {
+  border-collapse: collapse;
+  margin: 6px 0;
+}
+
+.mycellia-callout-body th,
+.mycellia-callout-body td {
+  border: 1px solid var(--border-subtle);
+  padding: 4px 8px;
+}
+
+.mycellia-callout-body a {
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: default;
+}
+
+.mycellia-callout-body img {
+  max-width: 100%;
+  border-radius: 6px;
+}
+
+.mycellia-callout-body input[type='checkbox'] {
+  accent-color: var(--accent);
+  margin-right: 4px;
+  pointer-events: none;
+}
+
+.mycellia-callout-body h1,
+.mycellia-callout-body h2,
+.mycellia-callout-body h3,
+.mycellia-callout-body h4,
+.mycellia-callout-body h5,
+.mycellia-callout-body h6 {
+  font-weight: 700;
+  margin: 6px 0 2px;
+  color: var(--text-primary);
+}
+
+/* ===== HTML inline no live preview (E1 — Spec 25) ===== */
+.cm-html-u {
+  text-decoration: underline;
+}
+
+.cm-html-mark {
+  background-color: rgba(230, 180, 92, 0.35);
+  border-radius: 2px;
+  padding: 0 1px;
+  color: inherit;
+}
+
+.cm-html-sub {
+  vertical-align: sub;
+  font-size: 0.8em;
+}
+
+.cm-html-sup {
+  vertical-align: super;
+  font-size: 0.8em;
+}
+
+.cm-html-kbd {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 0 4px;
+  background: var(--substrate-raised);
+}
+
+.cm-html-small {
+  font-size: 0.85em;
+}
+
+.mycellia-html-block {
+  font-family: var(--font-sans);
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+
+.mycellia-html-block img {
+  max-width: 100%;
+  border-radius: 6px;
+}
+
+.mycellia-html-block a {
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: default;
+}
+
+.mycellia-html-block table {
+  border-collapse: collapse;
+}
+
+.mycellia-html-block th,
+.mycellia-html-block td {
+  border: 1px solid var(--border-subtle);
+  padding: 4px 8px;
+}
+

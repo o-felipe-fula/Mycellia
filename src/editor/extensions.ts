@@ -12,6 +12,8 @@ import { themeChangeEffect, fileTreeChangedEffect, type DecSpec } from './shared
 import { EmptyWidget, TableWidget, BulletWidget, TaskMarkerWidget, ImageWidget } from './widgets';
 import { getFencedCodeContent, resolveImagePath, isInsideCodeBlock, isRangeInCode, hasChildTaskMarker } from './utils';
 import { MermaidWidget } from './mermaid';
+import { CalloutWidget, isCalloutSource } from './callouts';
+import { collectInlineHtmlSpecs, HtmlBlockWidget, type HtmlTagRange } from './htmlPreview';
 
 export const wikiLinkExtension = () => {
   return StateField.define<DecorationSet>({
@@ -153,6 +155,7 @@ export function wikiLinkAutocomplete(context: CompletionContext): CompletionResu
 export const livePreviewExtension = () => {
   const buildDecorations = (state: EditorState, activeLineNumber: number): DecorationSet => {
     const specs: DecSpec[] = [];
+    const htmlTags: HtmlTagRange[] = []; // tags inline coletadas pro pareamento (E1)
     ensureSyntaxTree(state, state.doc.length, 50);
 
     // 1. Processa Árvore de Sintaxe do Lezer
@@ -192,6 +195,66 @@ export const livePreviewExtension = () => {
             });
             return true;
           }
+        }
+
+        // Callout Obsidian (E1 — Spec 25): `> [!tipo]` vira cartão fora do cursor.
+        // Blockquote comum segue o fluxo atual (QuoteMark oculto linha a linha).
+        if (nodeName === 'Blockquote') {
+          const rawText = state.doc.sliceString(node.from, node.to);
+          if (isCalloutSource(rawText)) {
+            const startLine = state.doc.lineAt(node.from).number;
+            const endLine = state.doc.lineAt(node.to).number;
+            if (activeLineNumber >= startLine && activeLineNumber <= endLine) {
+              return true;
+            }
+            specs.push({
+              from: node.from,
+              to: node.to,
+              dec: Decoration.replace({
+                widget: new CalloutWidget(rawText),
+              }),
+            });
+            return false;
+          }
+          return true;
+        }
+
+        // HTML no live preview (E1 — Spec 25): bloco vira widget sanitizado; tag inline
+        // é coletada pro pareamento pós-iteração; comentários HTML somem fora do cursor.
+        if (nodeName === 'HTMLBlock') {
+          const startLine = state.doc.lineAt(node.from).number;
+          const endLine = state.doc.lineAt(node.to).number;
+          if (activeLineNumber >= startLine && activeLineNumber <= endLine) {
+            return true;
+          }
+          const rawText = state.doc.sliceString(node.from, node.to);
+          specs.push({
+            from: node.from,
+            to: node.to,
+            dec: Decoration.replace({
+              widget: new HtmlBlockWidget(rawText),
+            }),
+          });
+          return false;
+        }
+
+        if (nodeName === 'HTMLTag') {
+          htmlTags.push({ from: node.from, to: node.to });
+          return true;
+        }
+
+        if (nodeName === 'Comment' || nodeName === 'CommentBlock') {
+          const startLine = state.doc.lineAt(node.from).number;
+          const endLine = state.doc.lineAt(node.to).number;
+          if (activeLineNumber >= startLine && activeLineNumber <= endLine) {
+            return true;
+          }
+          specs.push({
+            from: node.from,
+            to: node.to,
+            dec: Decoration.replace({ widget: new EmptyWidget() }),
+          });
+          return false;
         }
 
         if (nodeName === 'Table') {
@@ -297,6 +360,9 @@ export const livePreviewExtension = () => {
       },
     });
 
+    // Pareamento das tags HTML inline coletadas (E1 — Spec 25)
+    specs.push(...collectInlineHtmlSpecs(state, activeLineNumber, htmlTags));
+
     // Ordena por ordem de início e adiciona síncrono no RangeSetBuilder
     specs.sort((a, b) => a.from - b.from);
     const builder = new RangeSetBuilder<Decoration>();
@@ -320,7 +386,13 @@ export const livePreviewExtension = () => {
     update(decorations, tr) {
       decorations = decorations.map(tr.changes);
       const themeChanged = tr.effects.some(e => e.is(themeChangeEffect));
-      if (tr.docChanged || !tr.state.selection.eq(tr.startState.selection) || themeChanged) {
+      // E1 (Spec 25): o parser do Lezer continua em background depois do mount (o
+      // ensureSyntaxTree de 50ms pode devolver árvore PARCIAL em doc grande/carga alta).
+      // Quando o parse avança, o CM despacha transação com árvore nova — sem este
+      // gatilho, nós que só apareceram no parse completo (Blockquote/HTMLBlock/Table)
+      // ficariam sem decoração até a primeira interação do usuário.
+      const treeChanged = syntaxTree(tr.state) !== syntaxTree(tr.startState);
+      if (tr.docChanged || treeChanged || !tr.state.selection.eq(tr.startState.selection) || themeChanged) {
         const selection = tr.state.selection.main;
         const activeLineNumber = tr.state.doc.lineAt(selection.head).number;
         return buildDecorations(tr.state, activeLineNumber);

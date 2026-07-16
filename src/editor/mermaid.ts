@@ -16,6 +16,8 @@ async function loadMermaid() {
     startOnLoad: false,
     theme: document.documentElement.classList.contains('dark') ? 'dark' : 'default',
     securityLevel: 'strict',
+    // E1 (Spec 25): sem SVG-bomba de erro injetado no <body> — o painel de erro é nosso
+    suppressErrorRendering: true,
   });
   return mermaidModule;
 }
@@ -39,6 +41,7 @@ class MermaidThemeObserver implements PluginValue {
           mermaidModule.initialize({
             theme: currentIsDark ? 'dark' : 'default',
             securityLevel: 'strict',
+            suppressErrorRendering: true,
           });
         }
         mermaidCache.clear();
