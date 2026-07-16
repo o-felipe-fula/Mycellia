@@ -1,7 +1,16 @@
 import React, { useState } from 'react';
 import { useAppStore, FileNode } from '../store/appStore';
-import { Folder, FolderOpen, FileText, Image, File, ChevronDown, ChevronRight } from 'lucide-react';
+import { Folder, FolderOpen, FileText, Image, File, ChevronDown, ChevronRight, FilePlus, FolderPlus, Edit } from 'lucide-react';
 import ContextMenu from './ContextMenu';
+import { InputModal, ConfirmModal } from './InputModal';
+import { validateItemName } from '../utils/validateItemName';
+
+// Modal ativo da árvore (UI polish 2026-07-16: fim dos prompt()/confirm() nativos)
+type TreeModal =
+  | { kind: 'create-file'; parentPath: string }
+  | { kind: 'create-folder'; parentPath: string }
+  | { kind: 'rename'; target: FileNode }
+  | { kind: 'delete'; target: FileNode };
 
 const getParentPath = (p: string): string => {
   const lastBackslash = p.lastIndexOf('\\');
@@ -28,12 +37,13 @@ interface FileTreeProps {
 let activeDragPath: string | null = null;
 
 export default function FileTree({ node }: FileTreeProps) {
-  const { createItem, renameItem, deleteItem, openTab, activeTab, openInDefaultApp, moveItem, platform } = useAppStore();
+  const { createItem, renameItem, deleteItem, openTab, activeTab, openInDefaultApp, moveItem, platform, notify } = useAppStore();
   const [expanded, setExpanded] = useState<Record<string, boolean>>({ [node.path]: true });
   const [draggedOverPath, setDraggedOverPath] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; target: FileNode } | null>(
     null,
   );
+  const [modal, setModal] = useState<TreeModal | null>(null);
 
   const isValidDropTarget = (dragged: string | null, targetItem: FileNode): boolean => {
     if (!dragged) return false;
@@ -106,57 +116,64 @@ export default function FileTree({ node }: FileTreeProps) {
     });
   };
 
-  // Funções disparadas pelas ações do Menu de Contexto
-  const handleCreateFile = async (target: FileNode) => {
-    const parentPath = target.is_dir
-      ? target.path
-      : target.path.substring(0, target.path.lastIndexOf('\\'));
-    const name = prompt('Digite o nome da nova nota (ex: Minha Nota):');
-    if (name) {
-      try {
-        const fullName = name.endsWith('.md') ? name : `${name}.md`;
-        await createItem(parentPath, fullName, false);
-      } catch (err) {
-        alert(`Erro ao criar nota: ${err}`);
-      }
+  // Ações do Menu de Contexto: abrem o modal do DS (a execução vive nos callbacks do modal)
+  const parentPathOf = (target: FileNode) =>
+    target.is_dir ? target.path : target.path.substring(0, target.path.lastIndexOf('\\'));
+
+  const handleCreateFile = (target: FileNode) =>
+    setModal({ kind: 'create-file', parentPath: parentPathOf(target) });
+
+  const handleCreateFolder = (target: FileNode) =>
+    setModal({ kind: 'create-folder', parentPath: parentPathOf(target) });
+
+  const handleRename = (target: FileNode) => setModal({ kind: 'rename', target });
+
+  const handleDelete = (target: FileNode) => setModal({ kind: 'delete', target });
+
+  const confirmCreateFile = async (parentPath: string, name: string) => {
+    try {
+      const fullName = name.endsWith('.md') ? name : `${name}.md`;
+      await createItem(parentPath, fullName, false);
+      setModal(null);
+    } catch (err) {
+      setModal(null);
+      notify('error', `Erro ao criar nota: ${err}`);
     }
   };
 
-  const handleCreateFolder = async (target: FileNode) => {
-    const parentPath = target.is_dir
-      ? target.path
-      : target.path.substring(0, target.path.lastIndexOf('\\'));
-    const name = prompt('Digite o nome da nova pasta:');
-    if (name) {
-      try {
-        await createItem(parentPath, name, true);
-        // Garante que a pasta pai esteja expandida
-        setExpanded((prev) => ({ ...prev, [parentPath]: true }));
-      } catch (err) {
-        alert(`Erro ao criar pasta: ${err}`);
-      }
+  const confirmCreateFolder = async (parentPath: string, name: string) => {
+    try {
+      await createItem(parentPath, name, true);
+      // Garante que a pasta pai esteja expandida
+      setExpanded((prev) => ({ ...prev, [parentPath]: true }));
+      setModal(null);
+    } catch (err) {
+      setModal(null);
+      notify('error', `Erro ao criar pasta: ${err}`);
     }
   };
 
-  const handleRename = async (target: FileNode) => {
-    const name = prompt('Digite o novo nome:', target.name.replace('.md', ''));
-    if (name && name !== target.name) {
-      try {
-        await renameItem(target.path, name);
-      } catch (err) {
-        alert(`Erro ao renomear: ${err}`);
-      }
+  const confirmRename = async (target: FileNode, name: string) => {
+    if (name === target.name || name === target.name.replace('.md', '')) {
+      setModal(null);
+      return;
+    }
+    try {
+      await renameItem(target.path, name);
+      setModal(null);
+    } catch (err) {
+      setModal(null);
+      notify('error', `Erro ao renomear: ${err}`);
     }
   };
 
-  const handleDelete = async (target: FileNode) => {
-    const confirmDelete = confirm(`Deseja mover "${target.name}" para a lixeira do sistema?`);
-    if (confirmDelete) {
-      try {
-        await deleteItem(target.path);
-      } catch (err) {
-        alert(`Erro ao excluir: ${err}`);
-      }
+  const confirmDelete = async (target: FileNode) => {
+    try {
+      await deleteItem(target.path);
+      setModal(null);
+    } catch (err) {
+      setModal(null);
+      notify('error', `Erro ao excluir: ${err}`);
     }
   };
 
@@ -356,6 +373,52 @@ export default function FileTree({ node }: FileTreeProps) {
           onCreateFolder={() => handleCreateFolder(contextMenu.target)}
           onRename={() => handleRename(contextMenu.target)}
           onDelete={() => handleDelete(contextMenu.target)}
+        />
+      )}
+
+      {/* Modais do DS (UI polish 2026-07-16): fim dos prompt()/confirm() nativos */}
+      {modal?.kind === 'create-file' && (
+        <InputModal
+          title="Nova nota"
+          placeholder="Nome da nota (ex: Minha Nota)"
+          confirmLabel="Criar nota"
+          icon={<FilePlus className="w-5 h-5 text-[var(--accent)]" />}
+          validate={validateItemName}
+          onConfirm={(name) => confirmCreateFile(modal.parentPath, name)}
+          onCancel={() => setModal(null)}
+        />
+      )}
+      {modal?.kind === 'create-folder' && (
+        <InputModal
+          title="Nova pasta"
+          placeholder="Nome da pasta"
+          confirmLabel="Criar pasta"
+          icon={<FolderPlus className="w-5 h-5 text-[var(--tag)]" />}
+          validate={validateItemName}
+          onConfirm={(name) => confirmCreateFolder(modal.parentPath, name)}
+          onCancel={() => setModal(null)}
+        />
+      )}
+      {modal?.kind === 'rename' && (
+        <InputModal
+          title="Renomear"
+          description={`Renomeando "${modal.target.name}"`}
+          initialValue={modal.target.name.replace('.md', '')}
+          confirmLabel="Renomear"
+          icon={<Edit className="w-5 h-5 text-[var(--accent)]" />}
+          validate={validateItemName}
+          onConfirm={(name) => confirmRename(modal.target, name)}
+          onCancel={() => setModal(null)}
+        />
+      )}
+      {modal?.kind === 'delete' && (
+        <ConfirmModal
+          title="Mover para a lixeira"
+          message={`"${modal.target.name}" será movido para a lixeira do sistema. Você pode restaurar de lá se mudar de ideia.`}
+          confirmLabel="Mover para a lixeira"
+          danger
+          onConfirm={() => confirmDelete(modal.target)}
+          onCancel={() => setModal(null)}
         />
       )}
     </div>

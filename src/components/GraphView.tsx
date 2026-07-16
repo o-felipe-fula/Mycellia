@@ -4,6 +4,7 @@ import ForceGraph2D, { ForceGraphMethods as ForceGraph2DMethods, NodeObject, Lin
 import { RefreshCw, Layers } from 'lucide-react';
 import * as THREE from 'three';
 import { GraphErrorBoundary } from './GraphErrorBoundary';
+import { linkStyle } from '../utils/graphLinkStyle';
 import type { ForceGraphMethods as ForceGraph3DMethods, ForceGraphProps as ForceGraph3DProps } from 'react-force-graph-3d';
 
 // Lazy load the 3D Force Graph and Three.js as requested with strict generic props
@@ -111,6 +112,7 @@ const GraphViewInner: React.FC = () => {
       accentMuted: getVar('--accent-muted'),
       voidBg: getVar('--substrate-void'),
       border: getVar('--border-default'),
+      textMuted: getVar('--text-muted'),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [theme]);
@@ -491,42 +493,34 @@ const GraphViewInner: React.FC = () => {
     ctx.beginPath();
     ctx.moveTo(x1, y1);
     ctx.lineTo(x2, y2);
-    
-    if (queryActive) {
-      if (matchSource && matchTarget) {
-        const opacity = 0.12 + 0.23 * transitionProgress; // transitions from 0.12 to 0.35
-        ctx.strokeStyle = hexToRgba(colors.accentDim, opacity);
-        ctx.lineWidth = (0.6 + 0.1 * transitionProgress) / globalScale;
-      } else {
-        const opacity = 0.12 - 0.10 * transitionProgress; // smooth transition down to 0.02
-        const startColor = isConnectedToSelected ? colors.accent : colors.accentDim;
-        ctx.strokeStyle = hexToRgba(startColor, opacity);
-        ctx.lineWidth = (isConnectedToSelected ? 1.6 - 1.0 * transitionProgress : 0.6) / globalScale;
-      }
-    } else {
-      if (transitionProgress > 0) {
-        if (matchSource && matchTarget) {
-          const opacity = 0.12 + 0.23 * transitionProgress;
-          ctx.strokeStyle = hexToRgba(colors.accentDim, opacity);
-          ctx.lineWidth = (0.6 + 0.1 * transitionProgress) / globalScale;
-        } else {
-          const opacity = 0.02 + 0.10 * (1 - transitionProgress);
-          ctx.strokeStyle = hexToRgba(isConnectedToSelected ? colors.accent : colors.accentDim, opacity);
-          ctx.lineWidth = (isConnectedToSelected ? 1.6 : 0.6) / globalScale;
-        }
-      } else {
-        if (isConnectedToSelected) {
-          ctx.strokeStyle = colors.accent; // Active connection
-          ctx.lineWidth = 1.6 / globalScale;
-        } else {
-          ctx.strokeStyle = hexToRgba(colors.accentDim, 0.12); // Dormant
-          ctx.lineWidth = 0.6 / globalScale;
-        }
-      }
-    }
-    
+
+    // UI polish (2026-07-16): estilo unificado 2D/3D via helper puro — base cinza
+    // translúcida visível, seleção/busca em neon (pedido do Felipe)
+    const style = linkStyle({
+      queryActive,
+      isMatch: matchSource && matchTarget,
+      isConnectedToSelected,
+      transitionProgress,
+      colors,
+    });
+    ctx.strokeStyle = style.color;
+    ctx.lineWidth = style.width / globalScale;
+
     ctx.stroke();
     ctx.restore();
+  };
+
+  // Mesmo helper do drawLink, na forma que os accessors do ForceGraph3D consomem
+  const getLink3DStyle = (link: LinkObject<GraphNode, GraphLink>) => {
+    const sourceId = getLinkId(link.source);
+    const targetId = getLinkId(link.target);
+    return linkStyle({
+      queryActive: graphSearchQuery.trim() !== '',
+      isMatch: matchingPaths.has(sourceId) && matchingPaths.has(targetId),
+      isConnectedToSelected: isPathEqual(sourceId, activeTab) || isPathEqual(targetId, activeTab),
+      transitionProgress,
+      colors,
+    });
   };
 
   // Shared geometry for performance in 3D mode
@@ -752,59 +746,15 @@ const GraphViewInner: React.FC = () => {
               nodeThreeObject={nodeThreeObject}
               onNodeClick={handleNodeClick}
               onNodeHover={(node) => setHoveredNode(node as GraphNode | null)}
-              linkColor={(link: LinkObject<GraphNode, GraphLink>) => {
-                const queryActive = graphSearchQuery.trim() !== '';
-                const sourceId = getLinkId(link.source);
-                const targetId = getLinkId(link.target);
-                const isConnected = isPathEqual(sourceId, activeTab) || isPathEqual(targetId, activeTab);
-                
-                if (queryActive) {
-                  const matchSource = matchingPaths.has(sourceId);
-                  const matchTarget = matchingPaths.has(targetId);
-                  if (matchSource && matchTarget) {
-                    return interpolateColor(colors.accentDim, colors.accentBright, transitionProgress);
-                  }
-                  // Dim non-matches
-                  const opacity = 0.15 - 0.13 * transitionProgress; // transition from 0.15 to 0.02
-                  return hexToRgba(isConnected ? colors.accent : colors.accentDim, opacity);
-                } else {
-                  if (transitionProgress > 0) {
-                    const matchSource = matchingPaths.has(sourceId);
-                    const matchTarget = matchingPaths.has(targetId);
-                    if (matchSource && matchTarget) {
-                      return interpolateColor(colors.accentDim, colors.accentBright, transitionProgress);
-                    }
-                    const opacity = 0.02 + 0.13 * (1 - transitionProgress);
-                    return hexToRgba(isConnected ? colors.accent : colors.accentDim, opacity);
-                  }
-                  return isConnected ? colors.accent : hexToRgba(colors.accentDim, 0.15);
-                }
-              }}
-              linkWidth={(link: LinkObject<GraphNode, GraphLink>) => {
-                const queryActive = graphSearchQuery.trim() !== '';
-                const sourceId = getLinkId(link.source);
-                const targetId = getLinkId(link.target);
-                const isConnected = isPathEqual(sourceId, activeTab) || isPathEqual(targetId, activeTab);
-                
-                if (queryActive) {
-                  const matchSource = matchingPaths.has(sourceId);
-                  const matchTarget = matchingPaths.has(targetId);
-                  if (matchSource && matchTarget) {
-                    return 0.5 + 1.1 * transitionProgress; // transitions from 0.5 to 1.6
-                  }
-                  return 0.5 - 0.3 * transitionProgress; // transitions from 0.5 to 0.2
-                } else {
-                  if (transitionProgress > 0) {
-                    const matchSource = matchingPaths.has(sourceId);
-                    const matchTarget = matchingPaths.has(targetId);
-                    if (matchSource && matchTarget) {
-                      return 0.5 + 1.1 * transitionProgress;
-                    }
-                    return 0.2 + 0.3 * (1 - transitionProgress);
-                  }
-                  return isConnected ? 1.5 : 0.5;
-                }
-              }}
+              // UI polish (2026-07-16): linkOpacity=1 mata o abafador global default (0.2)
+              // da lib — o alpha agora é 100% controlado pelo helper via rgba
+              linkOpacity={1}
+              linkColor={(link: LinkObject<GraphNode, GraphLink>) => getLink3DStyle(link).color}
+              linkWidth={(link: LinkObject<GraphNode, GraphLink>) => getLink3DStyle(link).width}
+              linkDirectionalParticles={(link: LinkObject<GraphNode, GraphLink>) => getLink3DStyle(link).particles}
+              linkDirectionalParticleWidth={1.6}
+              linkDirectionalParticleSpeed={0.006}
+              linkDirectionalParticleColor={() => colors.accentBright}
             />
           </Suspense>
         )
