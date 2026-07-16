@@ -19,6 +19,7 @@ import {
   wikiLinkAutocomplete,
   livePreviewExtension,
   imagePreviewExtension,
+  invalidateHeadingsCache,
 } from '../editor/extensions';
 import { slashMenuCompletion, calloutTypeCompletion } from '../editor/slashMenu';
 import { selectionToolbar } from '../editor/selectionToolbar';
@@ -44,7 +45,7 @@ export default function MarkdownEditor({ content, onChange }: MarkdownEditorProp
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const decorationsCompartment = useRef(new Compartment());
-  const { activeTab, fileTree, renameItem, editorSourceMode, toggleEditorSourceMode } = useAppStore();
+  const { activeTab, fileTree, renameItem, editorSourceMode, toggleEditorSourceMode, pendingScrollToHeading, setPendingScrollToHeading } = useAppStore();
 
   const filename = activeTab ? activeTab.split('\\').pop()?.split('/').pop()?.replace('.md', '') || '' : '';
   const [title, setTitle] = useState(filename);
@@ -305,7 +306,38 @@ export default function MarkdownEditor({ content, onChange }: MarkdownEditorProp
   // recém-colada/criada aparece sem precisar reabrir a nota
   useEffect(() => {
     viewRef.current?.dispatch({ effects: fileTreeChangedEffect.of() });
+    // E2 Fatia B: árvore mudou → headings cacheados podem estar velhos
+    invalidateHeadingsCache();
   }, [fileTree]);
+
+  // E2 Fatia B (Spec 28): consome o scroll pendente de [[Nota#Título]] — acha o heading
+  // (case-insensitive) e rola até ele. Só limpa quando ACHOU ou quando o doc do editor
+  // já é o conteúdo atual da aba (senão limparia antes da nota terminar de carregar).
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!pendingScrollToHeading || !view) return;
+
+    const wanted = pendingScrollToHeading.trim().toLowerCase();
+    const doc = view.state.doc;
+    for (let l = 1; l <= doc.lines; l++) {
+      const line = doc.line(l);
+      const match = line.text.match(/^#{1,6}\s+(.+)$/);
+      if (match && match[1].trim().toLowerCase() === wanted) {
+        view.dispatch({
+          selection: { anchor: line.from },
+          effects: EditorView.scrollIntoView(line.from, { y: 'start' }),
+        });
+        view.focus();
+        setPendingScrollToHeading(null);
+        return;
+      }
+    }
+
+    // Heading não existe NESTE conteúdo: se o doc já está assentado, desiste limpo
+    if (content !== null && view.state.doc.toString() === content) {
+      setPendingScrollToHeading(null);
+    }
+  }, [pendingScrollToHeading, content, activeTab, setPendingScrollToHeading]);
 
   // E1.6 (Spec 27): alterna Edição ↔ Fonte reconfigurando o compartimento de decorações
   // (sem recriar o editor — cursor/scroll preservados)

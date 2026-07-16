@@ -9,7 +9,7 @@ import type { CompletionContext, CompletionResult } from '@codemirror/autocomple
 import type { SyntaxNode } from '@lezer/common';
 import { useAppStore } from '../store/appStore';
 import { themeChangeEffect, fileTreeChangedEffect, type DecSpec } from './shared';
-import { EmptyWidget, TableWidget, BulletWidget, TaskMarkerWidget, ImageWidget } from './widgets';
+import { EmptyWidget, TableWidget, BulletWidget, TaskMarkerWidget, ImageWidget, WikiLinkSepWidget } from './widgets';
 import { getFencedCodeContent, resolveImagePath, isInsideCodeBlock, isRangeInCode, hasChildTaskMarker } from './utils';
 import { MermaidWidget } from './mermaid';
 import { CalloutWidget, isCalloutSource } from './callouts';
@@ -48,7 +48,11 @@ export const wikiLinkExtension = () => {
           const target = match[1].trim();
           const hasAlias = !!match[2];
 
-          const resolved = existingNotes.has(target.toLowerCase());
+          // E2 Fatia B (Spec 28): `Nota#Título` resolve pela NOTA; o heading não
+          // invalida o link. `[[#Título]]` (mesma nota) é sempre resolvido.
+          const hashInTarget = target.indexOf('#');
+          const noteName = hashInTarget === -1 ? target : target.slice(0, hashInTarget).trim();
+          const resolved = noteName === '' ? true : existingNotes.has(noteName.toLowerCase());
           const cursorNear = selection.from >= start && selection.to <= end;
 
           const linkClass = `cm-wiki-link ${resolved ? 'cm-wiki-link-resolved' : 'cm-wiki-link-unresolved'}`;
@@ -89,6 +93,36 @@ export const wikiLinkExtension = () => {
                   attributes: { 'data-target': target },
                 }),
               });
+            } else if (hashInTarget !== -1) {
+              // E2 Fatia B: `Nota#Título` exibe `Nota › Título` — o '#' vira o
+              // separador visual; nota e heading recebem o mark clicável
+              const rawHashIdx = match[1].indexOf('#');
+              const hashPos = start + 2 + rawHashIdx;
+              if (hashPos > start + 2) {
+                specs.push({
+                  from: start + 2,
+                  to: hashPos,
+                  dec: Decoration.mark({
+                    class: linkClass,
+                    attributes: { 'data-target': target },
+                  }),
+                });
+              }
+              specs.push({
+                from: hashPos,
+                to: hashPos + 1,
+                dec: Decoration.replace({ widget: new WikiLinkSepWidget() }),
+              });
+              if (hashPos + 1 < end - 2) {
+                specs.push({
+                  from: hashPos + 1,
+                  to: end - 2,
+                  dec: Decoration.mark({
+                    class: `${linkClass} cm-wiki-link-heading`,
+                    attributes: { 'data-target': target },
+                  }),
+                });
+              }
             } else {
               // Color the target
               specs.push({
@@ -126,11 +160,82 @@ export const wikiLinkExtension = () => {
   });
 };
 
-export function wikiLinkAutocomplete(context: CompletionContext): CompletionResult | null {
+// E2 Fatia B (Spec 28): headings da nota alvo lidos ON-DEMAND (read_file + regex),
+// com cache de última nota — sem mexer no schema do índice
+let headingsCache: { path: string; headings: string[] } | null = null;
+
+export function parseHeadings(content: string): string[] {
+  const headings: string[] = [];
+  let inFence = false;
+  for (const line of content.split('\n')) {
+    if (/^\s*(```|~~~)/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    const match = line.match(/^#{1,6}\s+(.+)$/);
+    if (match) {
+      headings.push(match[1].trim());
+    }
+  }
+  return headings;
+}
+
+async function getHeadingsFor(path: string): Promise<string[]> {
+  if (headingsCache?.path === path) {
+    return headingsCache.headings;
+  }
+  const { invoke } = await import('@tauri-apps/api/core');
+  const content = await invoke<string>('read_file', { path });
+  const headings = parseHeadings(content);
+  headingsCache = { path, headings };
+  return headings;
+}
+
+// Invalidação simples: o MarkdownEditor chama quando o watcher reporta mudança de árvore
+export function invalidateHeadingsCache() {
+  headingsCache = null;
+}
+
+export async function wikiLinkAutocomplete(context: CompletionContext): Promise<CompletionResult | null> {
   const word = context.matchBefore(/\[\[[^\]]*$/);
   if (!word) return null;
 
-  const prefix = word.text.slice(2).toLowerCase();
+  const inner = word.text.slice(2);
+  const hashIdx = inner.indexOf('#');
+
+  // E2 Fatia B: `[[Nota#` → completa com os headings da nota alvo
+  if (hashIdx !== -1) {
+    const noteName = inner.slice(0, hashIdx).trim();
+    const store = useAppStore.getState();
+
+    let headings: string[];
+    if (noteName === '') {
+      // `[[#` → headings da PRÓPRIA nota (conteúdo já está em memória)
+      headings = parseHeadings(store.activeNoteContent ?? '');
+    } else {
+      const path = store.existingNotes.get(noteName.toLowerCase());
+      if (!path) return null;
+      try {
+        headings = await getHeadingsFor(path);
+      } catch (e) {
+        console.error('Failed to read headings for autocomplete:', e);
+        return null;
+      }
+    }
+
+    return {
+      from: word.from + 2 + hashIdx + 1,
+      options: headings.map((h) => ({
+        label: h,
+        type: 'text',
+        apply: `${h}]]`,
+      })),
+      validFor: /^[^\]#|]*$/,
+    };
+  }
+
+  const prefix = inner.toLowerCase();
   const existingNotes = useAppStore.getState().existingNotes;
 
   const options = Array.from(existingNotes.keys())

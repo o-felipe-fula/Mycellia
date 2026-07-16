@@ -217,6 +217,17 @@ body {
   border-bottom: 1px dashed var(--accent);
 }
 
+/* E2 Fatia B (Spec 28): [[Nota#Título]] exibe "Nota › Título" */
+.cm-wiki-link-sep {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.cm-wiki-link-heading {
+  opacity: 0.85;
+  font-style: italic;
+}
+
 /* Autocomplete popover styling */
 .cm-tooltip-autocomplete {
   background-color: var(--substrate-overlay) !important;

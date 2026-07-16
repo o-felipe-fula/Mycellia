@@ -149,6 +149,10 @@ export interface AppState {
   // E1.6 (Spec 27): modo Fonte — corpo da nota cru, sem decorações (sessão)
   editorSourceMode: boolean;
   toggleEditorSourceMode: () => void;
+
+  // E2 Fatia B (Spec 28): heading pendente de scroll após navegar por [[Nota#Título]]
+  pendingScrollToHeading: string | null;
+  setPendingScrollToHeading: (heading: string | null) => void;
 }
 
 // Salva as configurações de forma atômica no Rust AppData
@@ -287,6 +291,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   platform: 'windows',
   isNoteDirty: false,
   editorWideMode: false,
+  pendingScrollToHeading: null,
+  setPendingScrollToHeading: (heading: string | null) => set({ pendingScrollToHeading: heading }),
 
   initApp: async () => {
     const initStart = performance.now();
@@ -1047,15 +1053,29 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { existingNotes, currentVault, platform } = get();
     if (!currentVault) return;
 
+    // E2 Fatia B (Spec 28): separa `Nota#Título` — a nota resolve/abre normalmente
+    // e o fragmento vira scroll pendente (consumido pelo MarkdownEditor)
+    const hashIndex = targetName.indexOf('#');
+    const fragment = hashIndex === -1 ? null : targetName.slice(hashIndex + 1).trim();
+    const noteName = (hashIndex === -1 ? targetName : targetName.slice(0, hashIndex)).trim();
+
+    // `[[#Título]]`: heading da PRÓPRIA nota — só scroll, sem trocar de aba
+    if (noteName === '') {
+      if (fragment) {
+        set({ pendingScrollToHeading: fragment });
+      }
+      return;
+    }
+
     // Sincroniza qualquer alteração pendente antes de trocar de aba ou criar item
     await get().flushPendingSave();
 
     const isWindows = platform === 'windows';
-    let targetPath = isWindows ? existingNotes.get(targetName.toLowerCase()) : existingNotes.get(targetName);
+    let targetPath = isWindows ? existingNotes.get(noteName.toLowerCase()) : existingNotes.get(noteName);
     let fellBack = false;
 
     if (!targetPath && !isWindows) {
-      targetPath = existingNotes.get(targetName.toLowerCase());
+      targetPath = existingNotes.get(noteName.toLowerCase());
       if (targetPath) {
         fellBack = true;
       }
@@ -1071,12 +1091,12 @@ export const useAppStore = create<AppState>((set, get) => ({
             const vaultNorm = currentVault.replace(/\\/g, '/');
             const rel = relPath.startsWith(vaultNorm) ? relPath.slice(vaultNorm.length).replace(/^\//, '') : relPath;
             const relNoExt = rel.endsWith('.md') ? rel.slice(0, -3) : rel;
-            const targetLower = targetName.toLowerCase();
+            const targetLower = noteName.toLowerCase();
             return baseLower === targetLower || rel.toLowerCase() === targetLower || relNoExt.toLowerCase() === targetLower;
           });
           if (matches.length > 1) {
-            console.warn(`Wiki-link resolution collision warning: Multiple files match '${targetName}' case-insensitively.`);
-            get().setGlobalError(`Aviso de Ambiguidade: Múltiplos arquivos colidindo insensivelmente para o link [[${targetName}]].`);
+            console.warn(`Wiki-link resolution collision warning: Multiple files match '${noteName}' case-insensitively.`);
+            get().setGlobalError(`Aviso de Ambiguidade: Múltiplos arquivos colidindo insensivelmente para o link [[${noteName}]].`);
           }
         } catch (e) {
           console.error('Failed to check link collisions:', e);
@@ -1084,11 +1104,14 @@ export const useAppStore = create<AppState>((set, get) => ({
         }
       }
       await get().openTab(targetPath);
+      if (fragment) {
+        set({ pendingScrollToHeading: fragment });
+      }
     } else {
-      const filename = targetName.endsWith('.md') ? targetName : `${targetName}.md`;
+      const filename = noteName.endsWith('.md') ? noteName : `${noteName}.md`;
       const newPath = await get().createItem(currentVault, filename, false);
       if (newPath) {
-        const baseLower = targetName.toLowerCase();
+        const baseLower = noteName.toLowerCase();
         const absolutePath = newPath;
 
         // Atualização em memória do map para navegação imediata sem delay do indexador de background
@@ -1105,7 +1128,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         updatedNotes.set(relNoExt.toLowerCase(), absolutePath);
 
         if (!isWindows) {
-          const base = targetName;
+          const base = noteName;
           updatedNotes.set(base, absolutePath);
           updatedNotes.set(relPath, absolutePath);
           updatedNotes.set(relNoExt, absolutePath);
@@ -1114,6 +1137,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         set({ existingNotes: updatedNotes });
 
         await get().openTab(absolutePath);
+        if (fragment) {
+          set({ pendingScrollToHeading: fragment });
+        }
       }
     }
   },

@@ -224,11 +224,14 @@ function linkifyWikiLinks(root: ParentNode) {
         frag.appendChild(document.createTextNode(text.slice(lastIndex, match.index)));
       }
       const target = match[1].trim();
-      const resolved = existingNotes.has(target.toLowerCase());
+      // E2 Fatia B (Spec 28): `Nota#Título` resolve pela nota e exibe `Nota › Título`
+      const hashIdx = target.indexOf('#');
+      const noteName = hashIdx === -1 ? target : target.slice(0, hashIdx).trim();
+      const resolved = noteName === '' ? true : existingNotes.has(noteName.toLowerCase());
       const span = document.createElement('span');
       span.className = `cm-wiki-link ${resolved ? 'cm-wiki-link-resolved' : 'cm-wiki-link-unresolved'}`;
       span.setAttribute('data-target', target);
-      span.textContent = match[2] ? match[2].trim() : target;
+      span.textContent = match[2] ? match[2].trim() : target.replace('#', ' › ');
       frag.appendChild(span);
       lastIndex = match.index + match[0].length;
     }
