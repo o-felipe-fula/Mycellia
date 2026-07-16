@@ -156,6 +156,7 @@ export const livePreviewExtension = () => {
   const buildDecorations = (state: EditorState, activeLineNumber: number): DecorationSet => {
     const specs: DecSpec[] = [];
     const htmlTags: HtmlTagRange[] = []; // tags inline coletadas pro pareamento (E1)
+    const quoteLines = new Set<number>(); // linhas de citação comum (estilo de quote)
     ensureSyntaxTree(state, state.doc.length, 50);
 
     // 1. Processa Árvore de Sintaxe do Lezer
@@ -215,6 +216,16 @@ export const livePreviewExtension = () => {
               }),
             });
             return false;
+          }
+          // Citação comum: sem estilo ela fica idêntica a texto normal quando o ">"
+          // é escondido (achado do Felipe no Review Gate do E1.5) — marca as linhas
+          // pra ganharem borda/cor de quote. O Set deduplica blockquote aninhado.
+          {
+            const startLine = state.doc.lineAt(node.from).number;
+            const endLine = state.doc.lineAt(node.to).number;
+            for (let n = startLine; n <= endLine; n++) {
+              quoteLines.add(n);
+            }
           }
           return true;
         }
@@ -363,11 +374,26 @@ export const livePreviewExtension = () => {
     // Pareamento das tags HTML inline coletadas (E1 — Spec 25)
     specs.push(...collectInlineHtmlSpecs(state, activeLineNumber, htmlTags));
 
+    // Estilo de citação comum: decorações de LINHA (from==to no começo da linha).
+    // Entram ANTES dos demais specs no array — com `from` igual, o sort estável as
+    // mantém na frente e elas sobrevivem ao guard de overlap do builder (o replace
+    // do QuoteMark começa na mesma posição).
+    const quoteLineSpecs: DecSpec[] = [];
+    for (const lineNumber of quoteLines) {
+      const line = state.doc.line(lineNumber);
+      quoteLineSpecs.push({
+        from: line.from,
+        to: line.from,
+        dec: Decoration.line({ class: 'cm-quote-line' }),
+      });
+    }
+
     // Ordena por ordem de início e adiciona síncrono no RangeSetBuilder
-    specs.sort((a, b) => a.from - b.from);
+    const allSpecs = [...quoteLineSpecs, ...specs];
+    allSpecs.sort((a, b) => a.from - b.from);
     const builder = new RangeSetBuilder<Decoration>();
     let lastTo = -1;
-    for (const spec of specs) {
+    for (const spec of allSpecs) {
       if (spec.from >= lastTo) {
         builder.add(spec.from, spec.to, spec.dec);
         lastTo = spec.to;

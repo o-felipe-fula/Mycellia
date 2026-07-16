@@ -109,14 +109,27 @@ describe('Callouts (E1)', () => {
     expect(container.querySelector('.cm-content')).toHaveTextContent('[!note]');
   });
 
-  it('blockquote comum NÃO vira callout', async () => {
+  it('blockquote comum NÃO vira callout, mas ganha estilo de citação (linha marcada)', async () => {
     const content = `Linha inicial\n> citação simples de sempre`;
     const { container } = render(<MarkdownEditor content={content} onChange={vi.fn()} />);
 
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await waitFor(() => {
+      expect(container.querySelector('.mycellia-callout')).toBeNull();
+      expect(container.querySelector('.cm-content')).toHaveTextContent('citação simples');
+      // Achado do Felipe (Review Gate E1.5): sem estilo, a citação ficava idêntica a
+      // texto normal quando o ">" é escondido — a linha agora carrega a classe de quote
+      expect(container.querySelector('.cm-line.cm-quote-line')).toBeInTheDocument();
+    });
+  });
 
-    expect(container.querySelector('.mycellia-callout')).toBeNull();
-    expect(container.querySelector('.cm-content')).toHaveTextContent('citação simples');
+  it('linhas de callout NÃO recebem o estilo de citação comum (viram widget)', async () => {
+    const content = `Linha inicial\n> [!note] Título\n> corpo`;
+    const { container } = render(<MarkdownEditor content={content} onChange={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(container.querySelector('.mycellia-callout')).toBeInTheDocument();
+      expect(container.querySelector('.cm-line.cm-quote-line')).toBeNull();
+    });
   });
 
   it('sanitiza o corpo: script e handlers de evento não sobrevivem', async () => {

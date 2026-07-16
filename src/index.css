@@ -559,6 +559,13 @@ textarea:focus-visible,
   padding: 4px 8px;
 }
 
+/* ===== Citação comum no live preview (achado do Felipe, Review Gate E1.5) ===== */
+.cm-line.cm-quote-line {
+  border-left: 3px solid var(--accent-dim);
+  padding-left: 12px;
+  color: var(--text-secondary);
+}
+
 /* ===== Toolbar flutuante de seleção (E1.5 — Spec 26) ===== */
 .cm-tooltip.mycellia-seltoolbar,
 .mycellia-seltoolbar {
