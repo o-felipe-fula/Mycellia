@@ -1,7 +1,8 @@
-import { render, screen, act } from '@testing-library/react';
+import { render, screen, act, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import StatusBar from '../components/StatusBar';
 import { useAppStore } from '../store/appStore';
+import { invoke } from '@tauri-apps/api/core';
 
 describe('StatusBar Component', () => {
   beforeEach(() => {
@@ -28,6 +29,7 @@ describe('StatusBar Component', () => {
       indexingProgressText: null,
       isWatching: true,
       activeNoteContent: 'Esta é uma nota de teste com sete palavras.',
+      editorWideMode: false,
     });
   });
 
@@ -84,5 +86,41 @@ describe('StatusBar Component', () => {
     expect(screen.getByText('9 palavras')).toBeInTheDocument();
 
     vi.useRealTimers();
+  });
+
+  // E1 (Spec 25) — toggle da largura da linha do editor
+  it('deve exibir o toggle de largura como "Confortável" por default e alternar para "Cheia" persistindo no config', () => {
+    render(<StatusBar />);
+
+    const toggle = screen.getByRole('button', { name: /alternar largura da linha/i });
+    expect(toggle).toHaveTextContent('Confortável');
+
+    fireEvent.click(toggle);
+
+    expect(useAppStore.getState().editorWideMode).toBe(true);
+    expect(toggle).toHaveTextContent('Cheia');
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith(
+      'save_config',
+      expect.objectContaining({
+        config: expect.objectContaining({ editor_wide_mode: true }),
+      }),
+    );
+
+    // Alterna de volta e persiste false
+    fireEvent.click(toggle);
+    expect(useAppStore.getState().editorWideMode).toBe(false);
+    expect(toggle).toHaveTextContent('Confortável');
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith(
+      'save_config',
+      expect.objectContaining({
+        config: expect.objectContaining({ editor_wide_mode: false }),
+      }),
+    );
+  });
+
+  it('não exibe o toggle de largura quando nenhuma nota está aberta', () => {
+    useAppStore.setState({ activeNoteContent: null });
+    render(<StatusBar />);
+    expect(screen.queryByRole('button', { name: /alternar largura da linha/i })).toBeNull();
   });
 });

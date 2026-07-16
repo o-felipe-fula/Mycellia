@@ -1,9 +1,9 @@
 import { useMemo, useState, useEffect } from 'react';
 import { useAppStore, FileNode } from '../store/appStore';
-import { Folder, Eye, EyeOff, Loader2, RefreshCw } from 'lucide-react';
+import { Folder, Eye, EyeOff, Loader2, RefreshCw, MoveHorizontal } from 'lucide-react';
 
 export default function StatusBar() {
-  const { currentVault, fileTree, isIndexing, indexingProgressText, isWatching, activeNoteContent, rebuildIndex } = useAppStore();
+  const { currentVault, fileTree, isIndexing, indexingProgressText, isWatching, activeNoteContent, rebuildIndex, editorWideMode, toggleEditorWideMode } = useAppStore();
 
   // Contagem de arquivos: memoizado sobre fileTree para evitar varredura a cada render
   const fileCount = useMemo(() => {
@@ -89,6 +89,23 @@ export default function StatusBar() {
       <div className="flex items-center gap-1.5">
         {activeNoteContent !== null && (
           <>
+            {/* E1 (Spec 25): toggle da largura da linha do editor (persiste no config) */}
+            <button
+              onClick={() => toggleEditorWideMode()}
+              title={
+                editorWideMode
+                  ? 'Largura da linha: Cheia — clique para voltar à coluna confortável'
+                  : 'Largura da linha: Confortável — clique para usar a tela toda'
+              }
+              aria-label="Alternar largura da linha do editor"
+              className={`group flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-[var(--substrate-raised)] cursor-pointer transition-colors ${
+                editorWideMode ? 'text-[var(--accent)]' : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+              }`}
+            >
+              <MoveHorizontal className="w-3.5 h-3.5 flex-shrink-0" />
+              <span>{editorWideMode ? 'Cheia' : 'Confortável'}</span>
+            </button>
+            <span className="text-[var(--text-muted)]">·</span>
             <span>
               {wordCount} {wordCount === 1 ? 'palavra' : 'palavras'}
             </span>
