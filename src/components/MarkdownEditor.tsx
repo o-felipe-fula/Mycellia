@@ -2,8 +2,9 @@
 // widgets, tema e o subsistema mermaid vivem em src/editor/* (extraídos intactos). O
 // onChange alimenta o autosave do store (fluxo de save sagrado) — a fiação daqui não muda.
 import { useEffect, useRef, useState } from 'react';
-import { EditorState } from '@codemirror/state';
+import { EditorState, Compartment } from '@codemirror/state';
 import { EditorView, ViewUpdate, keymap } from '@codemirror/view';
+import { PenLine, Code2 } from 'lucide-react';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { GFM } from '@lezer/markdown';
 import { syntaxTree, syntaxHighlighting, ensureSyntaxTree } from '@codemirror/language';
@@ -28,10 +29,20 @@ interface MarkdownEditorProps {
   onChange: (value: string) => void;
 }
 
+// E1.6 (Spec 27): as decorações de preview vivem num Compartment — o modo Fonte as
+// desliga por reconfigure, sem recriar o editor (cursor/scroll preservados).
+const buildDecorationExtensions = () => [
+  livePreviewExtension(),
+  mermaidThemePlugin,
+  imagePreviewExtension(),
+  wikiLinkExtension(),
+];
+
 export default function MarkdownEditor({ content, onChange }: MarkdownEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
-  const { activeTab, fileTree, renameItem } = useAppStore();
+  const decorationsCompartment = useRef(new Compartment());
+  const { activeTab, fileTree, renameItem, editorSourceMode, toggleEditorSourceMode } = useAppStore();
 
   const filename = activeTab ? activeTab.split('\\').pop()?.split('/').pop()?.replace('.md', '') || '' : '';
   const [title, setTitle] = useState(filename);
@@ -117,15 +128,26 @@ export default function MarkdownEditor({ content, onChange }: MarkdownEditorProp
           extensions: [GFM],
         }),
         history(),
-        keymap.of([...standardKeymap, ...historyKeymap]),
+        keymap.of([
+          // E1.6 (Spec 27): Ctrl+E alterna Edição ↔ Fonte (padrão Obsidian)
+          {
+            key: 'Mod-e',
+            run: () => {
+              useAppStore.getState().toggleEditorSourceMode();
+              return true;
+            },
+          },
+          ...standardKeymap,
+          ...historyKeymap,
+        ]),
         mycelliaTheme,
         syntaxHighlighting(mycelliaHighlightStyle),
-        livePreviewExtension(),
-        mermaidThemePlugin,
-        imagePreviewExtension(),
-        wikiLinkExtension(),
+        decorationsCompartment.current.of(
+          useAppStore.getState().editorSourceMode ? [] : buildDecorationExtensions(),
+        ),
         // E1.5 (Spec 26): slash menu + tipos de callout entram na MESMA infra de
-        // autocomplete dos wiki-links; toolbar de seleção via Tooltip API
+        // autocomplete dos wiki-links; toolbar de seleção via Tooltip API.
+        // Ficam FORA do compartimento: ajudantes de digitação valem nos dois modos.
         autocompletion({ override: [wikiLinkAutocomplete, slashMenuCompletion, calloutTypeCompletion] }),
         selectionToolbar(),
         EditorView.lineWrapping,
@@ -271,11 +293,21 @@ export default function MarkdownEditor({ content, onChange }: MarkdownEditorProp
     viewRef.current?.dispatch({ effects: fileTreeChangedEffect.of() });
   }, [fileTree]);
 
+  // E1.6 (Spec 27): alterna Edição ↔ Fonte reconfigurando o compartimento de decorações
+  // (sem recriar o editor — cursor/scroll preservados)
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: decorationsCompartment.current.reconfigure(
+        editorSourceMode ? [] : buildDecorationExtensions(),
+      ),
+    });
+  }, [editorSourceMode]);
+
   return (
     <div className="flex flex-col h-full w-full overflow-hidden">
       {/* Header Fixo */}
       <div className="flex-shrink-0 flex flex-col space-y-4 mb-4 select-none pr-2">
-        <div className="relative">
+        <div className="relative flex items-center gap-2">
           <input
             type="text"
             value={title}
@@ -285,9 +317,27 @@ export default function MarkdownEditor({ content, onChange }: MarkdownEditorProp
             }}
             onBlur={handleBlur}
             onKeyDown={handleKeyDown}
-            className="w-full bg-transparent border-b border-transparent focus:border-[var(--border-strong)] outline-none text-[27px] font-display font-semibold text-[var(--text-primary)] py-1 transition-all"
+            className="flex-1 min-w-0 bg-transparent border-b border-transparent focus:border-[var(--border-strong)] outline-none text-[27px] font-display font-semibold text-[var(--text-primary)] py-1 transition-all"
             placeholder="Sem título"
           />
+          {/* E1.6 (Spec 27): toggle Edição ↔ Fonte (mostra o modo ATUAL; Ctrl+E também alterna) */}
+          <button
+            onClick={() => toggleEditorSourceMode()}
+            title={
+              editorSourceMode
+                ? 'Modo Fonte: markdown cru, sem render — clique (ou Ctrl+E) para voltar à Edição'
+                : 'Modo Edição: preview ao vivo — clique (ou Ctrl+E) para ver o markdown cru'
+            }
+            aria-label="Alternar modo de exibição da nota"
+            className={`flex-shrink-0 flex items-center gap-1.5 rounded-md px-2 py-1 text-xs border transition-colors cursor-pointer ${
+              editorSourceMode
+                ? 'text-[var(--accent)] border-[var(--accent-muted)] bg-[var(--accent-muted)]'
+                : 'text-[var(--text-muted)] border-[var(--border-subtle)] hover:text-[var(--text-secondary)] hover:bg-[var(--substrate-raised)]'
+            }`}
+          >
+            {editorSourceMode ? <Code2 className="w-3.5 h-3.5" /> : <PenLine className="w-3.5 h-3.5" />}
+            <span>{editorSourceMode ? 'Fonte' : 'Edição'}</span>
+          </button>
           {error && (
             <div className="absolute top-full left-0 mt-1 text-xs text-[var(--danger)] font-sans animate-in fade-in duration-200 z-10 bg-[var(--substrate-raised)] border border-[var(--border-default)] px-2 py-1 rounded shadow-lg">
               ⚠️ {error}

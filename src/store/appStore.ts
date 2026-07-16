@@ -141,6 +141,10 @@ export interface AppState {
   // E1 (Spec 25): largura da linha do editor (false = confortável, true = cheia)
   editorWideMode: boolean;
   toggleEditorWideMode: () => void;
+
+  // E1.6 (Spec 27): modo Fonte — corpo da nota cru, sem decorações (sessão)
+  editorSourceMode: boolean;
+  toggleEditorSourceMode: () => void;
 }
 
 // Salva as configurações de forma atômica no Rust AppData
