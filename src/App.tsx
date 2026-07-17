@@ -31,6 +31,7 @@ import WelcomeScreen from './components/WelcomeScreen';
 import ConflictModal from './components/ConflictModal';
 import GlobalErrorBanner from './components/GlobalErrorBanner';
 import { InputModal } from './components/InputModal';
+import CommandPalette from './components/CommandPalette';
 import { validateItemName } from './utils/validateItemName';
 import { usePanelResize } from './hooks/usePanelResize';
 import { useGlobalShortcuts } from './hooks/useGlobalShortcuts';
@@ -177,6 +178,21 @@ export default function App() {
 
   // Atalhos de Teclado Globais (A11y & Modificadores - DS §11)
   useGlobalShortcuts(handleCreateNewFile);
+
+  // E7: command palette (Ctrl/Cmd+P). Listener próprio (fora do useGlobalShortcuts) porque
+  // precisa disparar TAMBÉM com o foco no editor CM — e sobrepor o "print" default.
+  const [showPalette, setShowPalette] = React.useState(false);
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const mod = isMac ? e.metaKey : e.ctrlKey;
+      if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'p') {
+        e.preventDefault();
+        setShowPalette((v) => !v);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isMac]);
 
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden transition-colors duration-200 select-none bg-[var(--substrate-void)] text-[var(--text-primary)]">
@@ -540,6 +556,12 @@ export default function App() {
           validate={validateItemName}
           onConfirm={confirmCreateNewFile}
           onCancel={() => setShowNewNoteModal(false)}
+        />
+      )}
+      {showPalette && (
+        <CommandPalette
+          onClose={() => setShowPalette(false)}
+          onNewNote={handleCreateNewFile}
         />
       )}
       {currentVault && <StatusBar />}
