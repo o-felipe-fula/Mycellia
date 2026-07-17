@@ -326,9 +326,25 @@ export default function MarkdownEditor({ content, onChange }: MarkdownEditorProp
     if (!pendingScrollToHeading || !view) return;
 
     const wanted = pendingScrollToHeading.trim().toLowerCase();
+    // E2 Fatia D (Spec 28): fragmento `^id` é block ref — acha a linha com a âncora
+    const blockAnchorRe = wanted.startsWith('^')
+      ? new RegExp('\\s\\^' + wanted.slice(1).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*$', 'i')
+      : null;
     const doc = view.state.doc;
     for (let l = 1; l <= doc.lines; l++) {
       const line = doc.line(l);
+      if (blockAnchorRe) {
+        if (blockAnchorRe.test(line.text)) {
+          view.dispatch({
+            selection: { anchor: line.from },
+            effects: EditorView.scrollIntoView(line.from, { y: 'start' }),
+          });
+          view.focus();
+          setPendingScrollToHeading(null);
+          return;
+        }
+        continue;
+      }
       const match = line.text.match(/^#{1,6}\s+(.+)$/);
       if (match && match[1].trim().toLowerCase() === wanted) {
         view.dispatch({

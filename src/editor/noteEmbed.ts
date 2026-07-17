@@ -79,6 +79,18 @@ export function stripFrontmatter(content: string): string {
   return content;
 }
 
+// E2 Fatia D (Spec 28): bloco = a linha com a âncora ` ^id` (sem a âncora no render)
+export function extractBlock(content: string, blockId: string): string | null {
+  const escaped = blockId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const anchorRe = new RegExp('\\s\\^' + escaped + '\\s*$', 'i');
+  for (const line of content.split('\n')) {
+    if (anchorRe.test(line)) {
+      return line.replace(/\s\^[A-Za-z0-9-]+\s*$/, '');
+    }
+  }
+  return null;
+}
+
 // Seção = do heading (inclusive) até o próximo heading de nível ≤ (padrão Obsidian)
 export function extractSection(content: string, heading: string): string | null {
   const wanted = heading.trim().toLowerCase();
@@ -126,13 +138,16 @@ async function buildEmbedBody(
   let markdown = stripFrontmatter(raw);
 
   if (target.fragment) {
-    const section = extractSection(markdown, target.fragment);
-    if (section === null) {
-      body.textContent = `⚠️ Seção "${target.fragment}" não encontrada em ${target.noteName}`;
+    // E2 Fatia D: fragmento `^id` embeda o BLOCO; senão é seção por heading
+    const piece = target.fragment.startsWith('^')
+      ? extractBlock(markdown, target.fragment.slice(1))
+      : extractSection(markdown, target.fragment);
+    if (piece === null) {
+      body.textContent = `⚠️ "${target.fragment}" não encontrado em ${target.noteName}`;
       body.classList.add('mycellia-embed-missing');
       return body;
     }
-    markdown = section;
+    markdown = piece;
   }
 
   body.appendChild(renderMarkdownFragment(markdown));

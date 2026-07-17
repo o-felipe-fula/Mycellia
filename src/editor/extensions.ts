@@ -162,9 +162,9 @@ export const wikiLinkExtension = () => {
   });
 };
 
-// E2 Fatia B (Spec 28): headings da nota alvo lidos ON-DEMAND (read_file + regex),
-// com cache de última nota — sem mexer no schema do índice
-let headingsCache: { path: string; headings: string[] } | null = null;
+// E2 Fatias B/D (Spec 28): headings e âncoras de bloco da nota alvo lidos ON-DEMAND
+// (read_file + regex), com cache de última nota — sem mexer no schema do índice
+let headingsCache: { path: string; headings: string[]; anchors: string[] } | null = null;
 
 export function parseHeadings(content: string): string[] {
   const headings: string[] = [];
@@ -183,16 +183,33 @@ export function parseHeadings(content: string): string[] {
   return headings;
 }
 
+// Âncoras de bloco (` ^id` no fim da linha, padrão Obsidian) — devolve com o '^'
+export function parseBlockAnchors(content: string): string[] {
+  const anchors: string[] = [];
+  let inFence = false;
+  for (const line of content.split('\n')) {
+    if (/^\s*(```|~~~)/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    const match = line.match(/\s\^([A-Za-z0-9-]+)\s*$/);
+    if (match) {
+      anchors.push(`^${match[1]}`);
+    }
+  }
+  return anchors;
+}
+
 // Import estático (mesma lição do noteEmbed): import() dinâmico do módulo Tauri pode
 // resolver instância não-mockada nos testes e não traz ganho real de bundle
-async function getHeadingsFor(path: string): Promise<string[]> {
+async function loadNoteOutline(path: string): Promise<{ headings: string[]; anchors: string[] }> {
   if (headingsCache?.path === path) {
-    return headingsCache.headings;
+    return headingsCache;
   }
   const content = await invoke<string>('read_file', { path });
-  const headings = parseHeadings(content);
-  headingsCache = { path, headings };
-  return headings;
+  headingsCache = { path, headings: parseHeadings(content), anchors: parseBlockAnchors(content) };
+  return headingsCache;
 }
 
 // Invalidação simples: o MarkdownEditor chama quando o watcher reporta mudança de árvore
@@ -207,32 +224,36 @@ export async function wikiLinkAutocomplete(context: CompletionContext): Promise<
   const inner = word.text.slice(2);
   const hashIdx = inner.indexOf('#');
 
-  // E2 Fatia B: `[[Nota#` → completa com os headings da nota alvo
+  // E2 Fatias B/D: `[[Nota#` → headings da nota alvo; `[[Nota#^` → âncoras de bloco
   if (hashIdx !== -1) {
     const noteName = inner.slice(0, hashIdx).trim();
+    const partial = inner.slice(hashIdx + 1);
+    const wantsBlocks = partial.startsWith('^');
     const store = useAppStore.getState();
 
-    let headings: string[];
+    let outline: { headings: string[]; anchors: string[] };
     if (noteName === '') {
-      // `[[#` → headings da PRÓPRIA nota (conteúdo já está em memória)
-      headings = parseHeadings(store.activeNoteContent ?? '');
+      // `[[#` → própria nota (conteúdo já está em memória)
+      const content = store.activeNoteContent ?? '';
+      outline = { headings: parseHeadings(content), anchors: parseBlockAnchors(content) };
     } else {
       const path = store.existingNotes.get(noteName.toLowerCase());
       if (!path) return null;
       try {
-        headings = await getHeadingsFor(path);
+        outline = await loadNoteOutline(path);
       } catch (e) {
-        console.error('Failed to read headings for autocomplete:', e);
+        console.error('Failed to read outline for autocomplete:', e);
         return null;
       }
     }
 
+    const options = wantsBlocks ? outline.anchors : outline.headings;
     return {
       from: word.from + 2 + hashIdx + 1,
-      options: headings.map((h) => ({
-        label: h,
+      options: options.map((label) => ({
+        label,
         type: 'text',
-        apply: `${h}]]`,
+        apply: `${label}]]`,
       })),
       validFor: /^[^\]#|]*$/,
     };
