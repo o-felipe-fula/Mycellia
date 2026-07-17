@@ -38,6 +38,7 @@ fn main() {
             commands::index_db::start_indexing_command,
             commands::index_db::get_all_notes,
             commands::index_db::get_backlinks,
+            commands::index_db::get_all_tags,
             commands::index_db::get_outgoing_links,
             commands::index_db::get_graph_data,
             commands::graph_positions::load_graph_positions,

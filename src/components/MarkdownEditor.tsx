@@ -2,7 +2,7 @@
 // widgets, tema e o subsistema mermaid vivem em src/editor/* (extraídos intactos). O
 // onChange alimenta o autosave do store (fluxo de save sagrado) — a fiação daqui não muda.
 import { useEffect, useRef, useState } from 'react';
-import { EditorState, Compartment } from '@codemirror/state';
+import { EditorState, Compartment, Transaction } from '@codemirror/state';
 import { EditorView, ViewUpdate, keymap } from '@codemirror/view';
 import { PenLine, Code2 } from 'lucide-react';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
@@ -19,9 +19,12 @@ import {
   wikiLinkAutocomplete,
   livePreviewExtension,
   imagePreviewExtension,
+  invalidateHeadingsCache,
 } from '../editor/extensions';
 import { slashMenuCompletion, calloutTypeCompletion } from '../editor/slashMenu';
 import { selectionToolbar } from '../editor/selectionToolbar';
+import { hashtagExtension } from '../editor/hashtags';
+import { invalidateEmbedCache } from '../editor/noteEmbed';
 import PropertiesPanel from './PropertiesPanel';
 
 interface MarkdownEditorProps {
@@ -36,13 +39,14 @@ const buildDecorationExtensions = () => [
   mermaidThemePlugin,
   imagePreviewExtension(),
   wikiLinkExtension(),
+  hashtagExtension(), // E2 Fatia A (Spec 28): chips de #tag clicáveis
 ];
 
 export default function MarkdownEditor({ content, onChange }: MarkdownEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const decorationsCompartment = useRef(new Compartment());
-  const { activeTab, fileTree, renameItem, editorSourceMode, toggleEditorSourceMode } = useAppStore();
+  const { activeTab, fileTree, renameItem, editorSourceMode, toggleEditorSourceMode, pendingScrollToHeading, setPendingScrollToHeading } = useAppStore();
 
   const filename = activeTab ? activeTab.split('\\').pop()?.split('/').pop()?.replace('.md', '') || '' : '';
   const [title, setTitle] = useState(filename);
@@ -152,17 +156,41 @@ export default function MarkdownEditor({ content, onChange }: MarkdownEditorProp
         selectionToolbar(),
         EditorView.lineWrapping,
         EditorView.domEventHandlers({
-          click(event, view) {
-            console.log("CLICK EVENT TARGET CLASSNAME:", (event.target as HTMLElement).className);
+          // 🔴 Fix do Review Gate (17/07): navegação de link/tag acontece no MOUSEDOWN.
+          // No click, o mousedown default do CM já moveu o cursor pra dentro do link →
+          // a linha vira ativa → o preview revela o cru → o elemento clicado é trocado
+          // no meio do gesto e o click "morre" (era preciso clicar DUAS vezes). Navegar
+          // no mousedown (com preventDefault) resolve — padrão Obsidian. O estado cru
+          // (.cm-wiki-link-raw, cursor dentro) fica de fora: lá clique é pra EDITAR.
+          mousedown(event) {
+            if (event.button !== 0) return false;
             const target = event.target as HTMLElement;
+
             const wikiLinkEl = target.closest('.cm-wiki-link');
-            if (wikiLinkEl) {
+            if (wikiLinkEl && !wikiLinkEl.classList.contains('cm-wiki-link-raw')) {
               const targetName = wikiLinkEl.getAttribute('data-target');
               if (targetName) {
+                event.preventDefault();
                 useAppStore.getState().handleWikiLinkClick(targetName);
                 return true;
               }
             }
+
+            const hashtagEl = target.closest('.cm-hashtag');
+            if (hashtagEl) {
+              const tag = hashtagEl.getAttribute('data-tag');
+              if (tag) {
+                event.preventDefault();
+                const store = useAppStore.getState();
+                store.setLeftPanelMode('search');
+                store.setGraphSearchQuery(`#${tag}`);
+                return true;
+              }
+            }
+            return false;
+          },
+          click(event, view) {
+            const target = event.target as HTMLElement;
 
             const taskMarkerBox = target.closest('.cm-task-marker-box');
             if (taskMarkerBox) {
@@ -278,11 +306,17 @@ export default function MarkdownEditor({ content, onChange }: MarkdownEditorProp
   }, [activeTab]); // Reinicializa apenas quando mudamos de nota para recriar o estado limpo
 
   // Atualiza o documento se o conteúdo mudar externamente (por exemplo, ao alternar de aba)
+  // 🔴 BUG-08 (2026-07-16): este replace NUNCA pode entrar no histórico de undo. Sem a
+  // anotação, um Ctrl+Z logo após trocar de aba DESFAZIA o load (o view nasce com o
+  // conteúdo da nota anterior enquanto a nova carrega async) → o buffer voltava a ser a
+  // NOTA ANTERIOR → autosave gravava esse conteúdo NO ARQUIVO DA NOTA NOVA (corrupção
+  // cross-nota — Incidente classe #1). Pego ao vivo via CDP no Review Gate da Fatia B.
   useEffect(() => {
     const view = viewRef.current;
     if (view && view.state.doc.toString() !== content) {
       view.dispatch({
         changes: { from: 0, to: view.state.doc.length, insert: content },
+        annotations: Transaction.addToHistory.of(false),
       });
     }
   }, [content]);
@@ -291,7 +325,55 @@ export default function MarkdownEditor({ content, onChange }: MarkdownEditorProp
   // recém-colada/criada aparece sem precisar reabrir a nota
   useEffect(() => {
     viewRef.current?.dispatch({ effects: fileTreeChangedEffect.of() });
+    // E2 Fatias B/C: árvore mudou → headings e conteúdo de embeds podem estar velhos
+    invalidateHeadingsCache();
+    invalidateEmbedCache();
   }, [fileTree]);
+
+  // E2 Fatia B (Spec 28): consome o scroll pendente de [[Nota#Título]] — acha o heading
+  // (case-insensitive) e rola até ele. Só limpa quando ACHOU ou quando o doc do editor
+  // já é o conteúdo atual da aba (senão limparia antes da nota terminar de carregar).
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!pendingScrollToHeading || !view) return;
+
+    const wanted = pendingScrollToHeading.trim().toLowerCase();
+    // E2 Fatia D (Spec 28): fragmento `^id` é block ref — acha a linha com a âncora
+    const blockAnchorRe = wanted.startsWith('^')
+      ? new RegExp('\\s\\^' + wanted.slice(1).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*$', 'i')
+      : null;
+    const doc = view.state.doc;
+    for (let l = 1; l <= doc.lines; l++) {
+      const line = doc.line(l);
+      if (blockAnchorRe) {
+        if (blockAnchorRe.test(line.text)) {
+          view.dispatch({
+            selection: { anchor: line.from },
+            effects: EditorView.scrollIntoView(line.from, { y: 'start' }),
+          });
+          view.focus();
+          setPendingScrollToHeading(null);
+          return;
+        }
+        continue;
+      }
+      const match = line.text.match(/^#{1,6}\s+(.+)$/);
+      if (match && match[1].trim().toLowerCase() === wanted) {
+        view.dispatch({
+          selection: { anchor: line.from },
+          effects: EditorView.scrollIntoView(line.from, { y: 'start' }),
+        });
+        view.focus();
+        setPendingScrollToHeading(null);
+        return;
+      }
+    }
+
+    // Heading não existe NESTE conteúdo: se o doc já está assentado, desiste limpo
+    if (content !== null && view.state.doc.toString() === content) {
+      setPendingScrollToHeading(null);
+    }
+  }, [pendingScrollToHeading, content, activeTab, setPendingScrollToHeading]);
 
   // E1.6 (Spec 27): alterna Edição ↔ Fonte reconfigurando o compartimento de decorações
   // (sem recriar o editor — cursor/scroll preservados)

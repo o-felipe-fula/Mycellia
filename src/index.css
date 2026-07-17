@@ -217,6 +217,17 @@ body {
   border-bottom: 1px dashed var(--accent);
 }
 
+/* E2 Fatia B (Spec 28): [[Nota#Título]] exibe "Nota › Título" */
+.cm-wiki-link-sep {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.cm-wiki-link-heading {
+  opacity: 0.85;
+  font-style: italic;
+}
+
 /* Autocomplete popover styling */
 .cm-tooltip-autocomplete {
   background-color: var(--substrate-overlay) !important;
@@ -564,6 +575,79 @@ textarea:focus-visible,
   border-left: 3px solid var(--accent-dim);
   padding-left: 12px;
   color: var(--text-secondary);
+}
+
+/* ===== Transclusão de nota ![[Nota]] (E2 Fatia C — Spec 28) ===== */
+.mycellia-embed {
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--accent-dim);
+  border-radius: 8px;
+  background: var(--substrate-surface);
+  padding: 8px 12px;
+  font-family: var(--font-sans);
+}
+
+.mycellia-embed .mycellia-embed {
+  margin-top: 6px;
+  background: var(--substrate-raised);
+}
+
+.mycellia-embed-header {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: 0 0 2px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--accent);
+  cursor: pointer;
+  transition: color 0.1s ease;
+}
+
+.mycellia-embed-header::before {
+  content: '⇱ ';
+  color: var(--text-muted);
+}
+
+.mycellia-embed-header:hover {
+  color: var(--accent-bright);
+  text-decoration: underline;
+}
+
+.mycellia-embed-missing {
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.mycellia-embed-static {
+  cursor: pointer;
+}
+
+/* ===== #tags no editor (E2 Fatia A — Spec 28) ===== */
+.cm-hashtag {
+  color: var(--tag);
+  background-color: var(--tag-muted);
+  border-radius: 6px;
+  padding: 1px 5px;
+  font-size: 0.9em;
+  cursor: pointer;
+  transition: filter 0.1s ease;
+}
+
+.cm-hashtag:hover {
+  filter: brightness(1.25);
+  text-decoration: underline;
+}
+
+/* Âncora de bloco ` ^id`: endereço, não conteúdo — discreta (padrão Obsidian) */
+.cm-block-anchor {
+  opacity: 0.35;
+  font-size: 0.8em;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
 }
 
 /* ===== Toolbar flutuante de seleção (E1.5 — Spec 26) ===== */

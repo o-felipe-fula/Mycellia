@@ -83,6 +83,21 @@ export class TableWidget extends WidgetType {
   }
 }
 
+// E2 Fatia B (Spec 28): separador visual do link com heading — `Nota#Título` exibe
+// `Nota › Título` (padrão Obsidian) sem alterar um byte do documento
+export class WikiLinkSepWidget extends WidgetType {
+  toDOM() {
+    const span = document.createElement('span');
+    span.className = 'cm-wiki-link-sep';
+    span.textContent = ' › ';
+    return span;
+  }
+
+  eq() {
+    return true;
+  }
+}
+
 export class BulletWidget extends WidgetType {
   toDOM() {
     const span = document.createElement('span');

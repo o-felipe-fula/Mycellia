@@ -3,10 +3,10 @@
 // módulo folha para evitar import circular entre os dois.
 export const ensureDifferentViews = (
   center: 'editor' | 'graph',
-  right: 'backlinks' | 'graph' | 'editor'
+  right: 'backlinks' | 'graph' | 'editor' | 'tags'
 ): {
   centerView: 'editor' | 'graph';
-  rightView: 'backlinks' | 'graph' | 'editor';
+  rightView: 'backlinks' | 'graph' | 'editor' | 'tags';
 } => {
   let nextRight = right;
   if (center === 'editor' && right === 'editor') {

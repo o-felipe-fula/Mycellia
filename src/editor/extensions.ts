@@ -7,12 +7,14 @@ import { EditorView, Decoration, type DecorationSet } from '@codemirror/view';
 import { syntaxTree, ensureSyntaxTree } from '@codemirror/language';
 import type { CompletionContext, CompletionResult } from '@codemirror/autocomplete';
 import type { SyntaxNode } from '@lezer/common';
+import { invoke } from '@tauri-apps/api/core';
 import { useAppStore } from '../store/appStore';
 import { themeChangeEffect, fileTreeChangedEffect, type DecSpec } from './shared';
-import { EmptyWidget, TableWidget, BulletWidget, TaskMarkerWidget, ImageWidget } from './widgets';
+import { EmptyWidget, TableWidget, BulletWidget, TaskMarkerWidget, ImageWidget, WikiLinkSepWidget } from './widgets';
 import { getFencedCodeContent, resolveImagePath, isInsideCodeBlock, isRangeInCode, hasChildTaskMarker } from './utils';
 import { MermaidWidget } from './mermaid';
 import { CalloutWidget, isCalloutSource } from './callouts';
+import { NoteEmbedWidget, resolveNoteEmbed, getEmbedVersion } from './noteEmbed';
 import { collectInlineHtmlSpecs, HtmlBlockWidget, type HtmlTagRange } from './htmlPreview';
 
 export const wikiLinkExtension = () => {
@@ -48,17 +50,23 @@ export const wikiLinkExtension = () => {
           const target = match[1].trim();
           const hasAlias = !!match[2];
 
-          const resolved = existingNotes.has(target.toLowerCase());
+          // E2 Fatia B (Spec 28): `Nota#Título` resolve pela NOTA; o heading não
+          // invalida o link. `[[#Título]]` (mesma nota) é sempre resolvido.
+          const hashInTarget = target.indexOf('#');
+          const noteName = hashInTarget === -1 ? target : target.slice(0, hashInTarget).trim();
+          const resolved = noteName === '' ? true : existingNotes.has(noteName.toLowerCase());
           const cursorNear = selection.from >= start && selection.to <= end;
 
           const linkClass = `cm-wiki-link ${resolved ? 'cm-wiki-link-resolved' : 'cm-wiki-link-unresolved'}`;
 
           if (cursorNear) {
+            // Estado CRU (cursor dentro): marca com -raw pro mousedown de navegação
+            // IGNORAR — clicar aqui posiciona o cursor pra editar, não navega
             specs.push({
               from: start,
               to: end,
               dec: Decoration.mark({
-                class: linkClass,
+                class: `${linkClass} cm-wiki-link-raw`,
                 attributes: { 'data-target': target },
               }),
             });
@@ -89,6 +97,36 @@ export const wikiLinkExtension = () => {
                   attributes: { 'data-target': target },
                 }),
               });
+            } else if (hashInTarget !== -1) {
+              // E2 Fatia B: `Nota#Título` exibe `Nota › Título` — o '#' vira o
+              // separador visual; nota e heading recebem o mark clicável
+              const rawHashIdx = match[1].indexOf('#');
+              const hashPos = start + 2 + rawHashIdx;
+              if (hashPos > start + 2) {
+                specs.push({
+                  from: start + 2,
+                  to: hashPos,
+                  dec: Decoration.mark({
+                    class: linkClass,
+                    attributes: { 'data-target': target },
+                  }),
+                });
+              }
+              specs.push({
+                from: hashPos,
+                to: hashPos + 1,
+                dec: Decoration.replace({ widget: new WikiLinkSepWidget() }),
+              });
+              if (hashPos + 1 < end - 2) {
+                specs.push({
+                  from: hashPos + 1,
+                  to: end - 2,
+                  dec: Decoration.mark({
+                    class: `${linkClass} cm-wiki-link-heading`,
+                    attributes: { 'data-target': target },
+                  }),
+                });
+              }
             } else {
               // Color the target
               specs.push({
@@ -126,11 +164,104 @@ export const wikiLinkExtension = () => {
   });
 };
 
-export function wikiLinkAutocomplete(context: CompletionContext): CompletionResult | null {
+// E2 Fatias B/D (Spec 28): headings e âncoras de bloco da nota alvo lidos ON-DEMAND
+// (read_file + regex), com cache de última nota — sem mexer no schema do índice
+let headingsCache: { path: string; headings: string[]; anchors: string[] } | null = null;
+
+export function parseHeadings(content: string): string[] {
+  const headings: string[] = [];
+  let inFence = false;
+  for (const line of content.split('\n')) {
+    if (/^\s*(```|~~~)/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    const match = line.match(/^#{1,6}\s+(.+)$/);
+    if (match) {
+      headings.push(match[1].trim());
+    }
+  }
+  return headings;
+}
+
+// Âncoras de bloco (` ^id` no fim da linha, padrão Obsidian) — devolve com o '^'
+export function parseBlockAnchors(content: string): string[] {
+  const anchors: string[] = [];
+  let inFence = false;
+  for (const line of content.split('\n')) {
+    if (/^\s*(```|~~~)/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    const match = line.match(/\s\^([A-Za-z0-9-]+)\s*$/);
+    if (match) {
+      anchors.push(`^${match[1]}`);
+    }
+  }
+  return anchors;
+}
+
+// Import estático (mesma lição do noteEmbed): import() dinâmico do módulo Tauri pode
+// resolver instância não-mockada nos testes e não traz ganho real de bundle
+async function loadNoteOutline(path: string): Promise<{ headings: string[]; anchors: string[] }> {
+  if (headingsCache?.path === path) {
+    return headingsCache;
+  }
+  const content = await invoke<string>('read_file', { path });
+  headingsCache = { path, headings: parseHeadings(content), anchors: parseBlockAnchors(content) };
+  return headingsCache;
+}
+
+// Invalidação simples: o MarkdownEditor chama quando o watcher reporta mudança de árvore
+export function invalidateHeadingsCache() {
+  headingsCache = null;
+}
+
+export async function wikiLinkAutocomplete(context: CompletionContext): Promise<CompletionResult | null> {
   const word = context.matchBefore(/\[\[[^\]]*$/);
   if (!word) return null;
 
-  const prefix = word.text.slice(2).toLowerCase();
+  const inner = word.text.slice(2);
+  const hashIdx = inner.indexOf('#');
+
+  // E2 Fatias B/D: `[[Nota#` → headings da nota alvo; `[[Nota#^` → âncoras de bloco
+  if (hashIdx !== -1) {
+    const noteName = inner.slice(0, hashIdx).trim();
+    const partial = inner.slice(hashIdx + 1);
+    const wantsBlocks = partial.startsWith('^');
+    const store = useAppStore.getState();
+
+    let outline: { headings: string[]; anchors: string[] };
+    if (noteName === '') {
+      // `[[#` → própria nota (conteúdo já está em memória)
+      const content = store.activeNoteContent ?? '';
+      outline = { headings: parseHeadings(content), anchors: parseBlockAnchors(content) };
+    } else {
+      const path = store.existingNotes.get(noteName.toLowerCase());
+      if (!path) return null;
+      try {
+        outline = await loadNoteOutline(path);
+      } catch (e) {
+        console.error('Failed to read outline for autocomplete:', e);
+        return null;
+      }
+    }
+
+    const options = wantsBlocks ? outline.anchors : outline.headings;
+    return {
+      from: word.from + 2 + hashIdx + 1,
+      options: options.map((label) => ({
+        label,
+        type: 'text',
+        apply: `${label}]]`,
+      })),
+      validFor: /^[^\]#|]*$/,
+    };
+  }
+
+  const prefix = inner.toLowerCase();
   const existingNotes = useAppStore.getState().existingNotes;
 
   const options = Array.from(existingNotes.keys())
@@ -482,6 +613,21 @@ export const imagePreviewExtension = () => {
         }
 
         const filename = wikiMatch[1];
+
+        // E2 Fatia C (Spec 28): `![[Nota]]` com alvo que é NOTA vira transclusão;
+        // imagem/inexistente segue no fluxo de imagem de sempre (compat total)
+        const embedTarget = resolveNoteEmbed(filename.trim());
+        if (embedTarget) {
+          specs.push({
+            from: start,
+            to: end,
+            dec: Decoration.replace({
+              widget: new NoteEmbedWidget(embedTarget, getEmbedVersion()),
+            }),
+          });
+          continue;
+        }
+
         const { url: resolvedSrc, exists } = resolveImagePath(filename, activeNotePath, vaultPath, fileTree);
 
         specs.push({
