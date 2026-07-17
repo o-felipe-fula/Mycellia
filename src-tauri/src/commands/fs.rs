@@ -486,6 +486,13 @@ pub fn write_file<R: tauri::Runtime>(
     write_file_internal(&path, &content, allow_create)
 }
 
+// E6: exporta texto (HTML gerado) para um caminho ESCOLHIDO pelo usuário (fora do vault).
+// Escrita atômica; sem supressão de watcher (não é nota do vault). allow_create=true.
+#[tauri::command]
+pub fn export_text_file(path: String, content: String) -> Result<(), String> {
+    write_file_internal(&path, &content, true)
+}
+
 #[tauri::command]
 pub fn start_watching<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,

@@ -5,10 +5,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   FilePlus, SunMoon, Code2, MoveHorizontal, Network, Search, Hash, Link2,
-  RefreshCw, Database, Command as CommandIcon,
+  RefreshCw, Database, Command as CommandIcon, FileDown, Printer,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useAppStore } from '../store/appStore';
+import { exportNoteAsHtml, printNote } from '../utils/exportNote';
 
 interface Command {
   id: string;
@@ -56,12 +57,17 @@ export default function CommandPalette({ onClose, onNewNote }: CommandPalettePro
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
+  const noteTitle = store.activeTab
+    ? (store.activeTab.split(/[\\/]/).pop() || '').replace(/\.md$/, '')
+    : '';
+  const hasNote = store.activeTab !== null && store.activeNoteContent !== null;
+
   const commands = useMemo<Command[]>(() => {
     const run = (fn: () => void) => () => {
       fn();
       onClose();
     };
-    return [
+    const list: Command[] = [
       { id: 'new-note', label: 'Nova nota', hint: 'Ctrl+N', Icon: FilePlus, run: run(onNewNote) },
       { id: 'theme', label: 'Alternar tema (claro/escuro)', Icon: SunMoon, run: run(store.toggleTheme) },
       { id: 'source', label: 'Alternar modo Fonte', hint: 'Ctrl+E', Icon: Code2, run: run(store.toggleEditorSourceMode) },
@@ -73,9 +79,17 @@ export default function CommandPalette({ onClose, onNewNote }: CommandPalettePro
       { id: 'recalc-graph', label: 'Recalcular layout do grafo', hint: 'Ctrl+Shift+R', Icon: RefreshCw, run: run(store.loadGraphData) },
       { id: 'rebuild-index', label: 'Reconstruir índice de busca', Icon: Database, run: run(store.rebuildIndex) },
     ];
+    // E6: exportação só faz sentido com uma nota aberta
+    if (hasNote) {
+      list.push(
+        { id: 'export-html', label: 'Exportar nota como HTML', Icon: FileDown, run: run(() => { exportNoteAsHtml(store.activeNoteContent ?? '', noteTitle); }) },
+        { id: 'print', label: 'Imprimir / Exportar PDF', Icon: Printer, run: run(() => printNote(store.activeNoteContent ?? '', noteTitle)) },
+      );
+    }
+    return list;
     // store é estável entre renders (zustand); onNewNote/onClose idem via App
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onNewNote, onClose]);
+  }, [onNewNote, onClose, hasNote, noteTitle]);
 
   const filtered = useMemo(() => {
     const scored = commands

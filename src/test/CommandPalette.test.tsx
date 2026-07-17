@@ -16,6 +16,8 @@ describe('CommandPalette (E7)', () => {
       setRightView: vi.fn(),
       loadGraphData: vi.fn(async () => {}),
       rebuildIndex: vi.fn(async () => {}),
+      activeTab: null,
+      activeNoteContent: null,
     });
   });
 
@@ -90,5 +92,18 @@ describe('CommandPalette (E7)', () => {
     fireEvent.keyDown(screen.getByPlaceholderText('Digite um comando…'), { key: 'Escape' });
     expect(onClose).toHaveBeenCalled();
     expect(useAppStore.getState().toggleTheme).not.toHaveBeenCalled();
+  });
+
+  it('E6: comandos de export só aparecem com uma nota aberta', () => {
+    const { rerender } = render(<CommandPalette onClose={vi.fn()} onNewNote={vi.fn()} />);
+    // Sem nota: nada de export
+    expect(screen.queryByText('Exportar nota como HTML')).toBeNull();
+    expect(screen.queryByText('Imprimir / Exportar PDF')).toBeNull();
+
+    // Com nota aberta: os dois aparecem
+    useAppStore.setState({ activeTab: 'C:\\Vault\\Nota.md', activeNoteContent: '# Oi' });
+    rerender(<CommandPalette onClose={vi.fn()} onNewNote={vi.fn()} />);
+    expect(screen.getByText('Exportar nota como HTML')).toBeInTheDocument();
+    expect(screen.getByText('Imprimir / Exportar PDF')).toBeInTheDocument();
   });
 });
