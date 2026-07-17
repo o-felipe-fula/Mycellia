@@ -267,10 +267,6 @@ export default function MarkdownEditor({ content, onChange }: MarkdownEditorProp
                     },
                     selection: { anchor: mainSel.from + insertText.length },
                   });
-
-                  // E8: adianta a árvore pra imagem resolver na hora (sem esperar o
-                  // watcher) — mata o flash do "imagem não encontrada" no paste
-                  await useAppStore.getState().refreshFileTree();
                 } catch (error) {
                   console.error('Failed to save pasted image:', error);
                   const setGlobalError = useAppStore.getState().setGlobalError;

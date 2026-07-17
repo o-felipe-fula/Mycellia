@@ -100,7 +100,6 @@ export interface AppState {
   loadVault: (path: string) => Promise<void>;
   closeVault: () => Promise<void>;
   createItem: (parentPath: string, name: string, isDir: boolean) => Promise<string | undefined>;
-  refreshFileTree: () => Promise<void>;
   renameItem: (path: string, newName: string) => Promise<void>;
   moveItem: (path: string, newParentPath: string) => Promise<void>;
   deleteItem: (path: string) => Promise<void>;
@@ -542,21 +541,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       console.error(msg, e);
       get().setGlobalError(msg);
       throw e;
-    }
-  },
-
-  // E8: refresh SÓ da árvore (sem re-indexar) — mata o flash do "imagem não encontrada"
-  // ao colar. O arquivo é escrito no disco antes do watcher disparar; adiantar a árvore
-  // faz resolveImagePath achar a imagem na hora. Barato: só re-lê a estrutura de pastas.
-  refreshFileTree: async () => {
-    const { currentVault } = get();
-    if (!currentVault) return;
-    try {
-      const tree = await invoke<FileNode>('load_vault_tree', { vaultPath: currentVault });
-      set({ fileTree: tree });
-      await get().refreshExistingNotes();
-    } catch (e) {
-      console.error('Failed to refresh file tree:', e);
     }
   },
 
