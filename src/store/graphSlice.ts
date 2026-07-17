@@ -223,7 +223,15 @@ export const createGraphSlice = (set: Set, get: Get) => ({
       }
     } catch (e) {
       console.error('Failed to load graph data:', e);
-      get().notify('error', 'Falha ao carregar o grafo.');
+      // BUG-06 (E8): no cold start o GraphView chama loadGraphData ANTES do DB abrir
+      // → "Database connection not initialized". É transitório e ESPERADO: o handler de
+      // fim de indexação (appStore, BUG-01) recarrega o grafo. Só notifica erro REAL —
+      // o toast fantasma em todo boot assustava sem motivo.
+      const msg = typeof e === 'string' ? e : e instanceof Error ? e.message : String(e);
+      const isDbNotReady = /not initialized|não inicializ|Conexão com o banco perdida/i.test(msg);
+      if (!isDbNotReady) {
+        get().notify('error', 'Falha ao carregar o grafo.');
+      }
       telemetry.graphTime = 0;
       telemetry.hasGraphLoaded = true;
       checkAndPrintConsolidatedMetrics();

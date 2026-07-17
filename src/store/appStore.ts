@@ -100,6 +100,7 @@ export interface AppState {
   loadVault: (path: string) => Promise<void>;
   closeVault: () => Promise<void>;
   createItem: (parentPath: string, name: string, isDir: boolean) => Promise<string | undefined>;
+  refreshFileTree: () => Promise<void>;
   renameItem: (path: string, newName: string) => Promise<void>;
   moveItem: (path: string, newParentPath: string) => Promise<void>;
   deleteItem: (path: string) => Promise<void>;
@@ -162,6 +163,7 @@ async function saveConfigHelper(state: {
   theme: 'light' | 'dark';
   sidebarWidth: number;
   editorWideMode: boolean;
+  rightPanelWidth: number;
 }) {
   try {
     const config: AppConfig = {
@@ -170,6 +172,7 @@ async function saveConfigHelper(state: {
       theme: state.theme,
       sidebar_width: state.sidebarWidth,
       editor_wide_mode: state.editorWideMode,
+      right_panel_width: state.rightPanelWidth,
     };
     await invoke('save_config', { config });
   } catch (e) {
@@ -330,6 +333,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         recentVaults: config.recent_vaults,
         sidebarWidth: config.sidebar_width,
         editorWideMode: config.editor_wide_mode ?? false,
+        rightPanelWidth: config.right_panel_width ?? 300,
       });
 
       // Se havia um vault ativo anterior, carrega-o
@@ -360,6 +364,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         theme: newState.theme,
         sidebarWidth: newState.sidebarWidth,
         editorWideMode: newState.editorWideMode,
+        rightPanelWidth: newState.rightPanelWidth,
       });
 
       return { theme: nextTheme };
@@ -382,6 +387,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         theme: newState.theme,
         sidebarWidth: newState.sidebarWidth,
         editorWideMode: newState.editorWideMode,
+        rightPanelWidth: newState.rightPanelWidth,
       });
 
       return { theme };
@@ -396,8 +402,25 @@ export const useAppStore = create<AppState>((set, get) => ({
         theme: newState.theme,
         sidebarWidth: newState.sidebarWidth,
         editorWideMode: newState.editorWideMode,
+        rightPanelWidth: newState.rightPanelWidth,
       });
       return { sidebarWidth: width };
+    }),
+
+  // E8: persiste a largura do painel direito (chamada no mouseup do splitter — 1x por
+  // drag, como o setSidebarWidth). Sobrescreve a versão de sessão do layoutSlice.
+  setRightPanelWidth: (width: number) =>
+    set((state) => {
+      const newState = { ...state, rightPanelWidth: width };
+      saveConfigHelper({
+        currentVault: newState.currentVault,
+        recentVaults: newState.recentVaults,
+        theme: newState.theme,
+        sidebarWidth: newState.sidebarWidth,
+        editorWideMode: newState.editorWideMode,
+        rightPanelWidth: newState.rightPanelWidth,
+      });
+      return { rightPanelWidth: width };
     }),
 
   toggleEditorWideMode: () =>
@@ -409,6 +432,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         theme: newState.theme,
         sidebarWidth: newState.sidebarWidth,
         editorWideMode: newState.editorWideMode,
+        rightPanelWidth: newState.rightPanelWidth,
       });
       return { editorWideMode: newState.editorWideMode };
     }),
@@ -446,6 +470,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         theme: newState.theme,
         sidebarWidth: newState.sidebarWidth,
         editorWideMode: newState.editorWideMode,
+        rightPanelWidth: newState.rightPanelWidth,
       });
 
       return newState;
@@ -499,6 +524,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       theme: newState.theme,
       sidebarWidth: newState.sidebarWidth,
       editorWideMode: get().editorWideMode,
+      rightPanelWidth: get().rightPanelWidth,
     });
     set(newState);
   },
@@ -516,6 +542,21 @@ export const useAppStore = create<AppState>((set, get) => ({
       console.error(msg, e);
       get().setGlobalError(msg);
       throw e;
+    }
+  },
+
+  // E8: refresh SÓ da árvore (sem re-indexar) — mata o flash do "imagem não encontrada"
+  // ao colar. O arquivo é escrito no disco antes do watcher disparar; adiantar a árvore
+  // faz resolveImagePath achar a imagem na hora. Barato: só re-lê a estrutura de pastas.
+  refreshFileTree: async () => {
+    const { currentVault } = get();
+    if (!currentVault) return;
+    try {
+      const tree = await invoke<FileNode>('load_vault_tree', { vaultPath: currentVault });
+      set({ fileTree: tree });
+      await get().refreshExistingNotes();
+    } catch (e) {
+      console.error('Failed to refresh file tree:', e);
     }
   },
 

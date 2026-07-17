@@ -1482,6 +1482,7 @@ mod tests {
             theme: "dark".to_string(),
             sidebar_width: 260,
             editor_wide_mode: false,
+            right_panel_width: 300,
         };
         crate::commands::config::save_config(handle.clone(), config).unwrap();
 
@@ -1538,6 +1539,7 @@ mod tests {
             theme: "dark".to_string(),
             sidebar_width: 260,
             editor_wide_mode: false,
+            right_panel_width: 300,
         };
         crate::commands::config::save_config(handle.clone(), config).unwrap();
 
@@ -1718,6 +1720,7 @@ mod tests {
             theme: "dark".to_string(),
             sidebar_width: 260,
             editor_wide_mode: false,
+            right_panel_width: 300,
         };
         crate::commands::config::save_config(handle.clone(), config).unwrap();
 

@@ -160,6 +160,28 @@ describe('Graph View Store Actions', () => {
     }));
   });
 
+  test('BUG-06: erro "DB não inicializado" no boot NÃO vira toast; erro real vira', async () => {
+    const realNotify = useAppStore.getState().notify;
+    const notifySpy = vi.fn(() => 'id');
+    useAppStore.setState({ notify: notifySpy as never });
+
+    try {
+      // Caso 1: cold start, DB ainda não abriu → silencioso (o reload pós-indexação cobre)
+      vi.mocked(invoke).mockImplementationOnce(() =>
+        Promise.reject('Database connection not initialized'),
+      );
+      await useAppStore.getState().loadGraphData();
+      expect(notifySpy).not.toHaveBeenCalled();
+
+      // Caso 2: erro REAL → toast normal
+      vi.mocked(invoke).mockImplementationOnce(() => Promise.reject('disco corrompido'));
+      await useAppStore.getState().loadGraphData();
+      expect(notifySpy).toHaveBeenCalledWith('error', 'Falha ao carregar o grafo.');
+    } finally {
+      useAppStore.setState({ notify: realNotify });
+    }
+  });
+
   test('searchNotesFts queries FTS5 and updates state', async () => {
     const store = useAppStore.getState();
     expect(store.searchResults).toEqual([]);
