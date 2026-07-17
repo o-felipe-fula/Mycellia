@@ -156,29 +156,41 @@ export default function MarkdownEditor({ content, onChange }: MarkdownEditorProp
         selectionToolbar(),
         EditorView.lineWrapping,
         EditorView.domEventHandlers({
-          click(event, view) {
-            console.log("CLICK EVENT TARGET CLASSNAME:", (event.target as HTMLElement).className);
+          // 🔴 Fix do Review Gate (17/07): navegação de link/tag acontece no MOUSEDOWN.
+          // No click, o mousedown default do CM já moveu o cursor pra dentro do link →
+          // a linha vira ativa → o preview revela o cru → o elemento clicado é trocado
+          // no meio do gesto e o click "morre" (era preciso clicar DUAS vezes). Navegar
+          // no mousedown (com preventDefault) resolve — padrão Obsidian. O estado cru
+          // (.cm-wiki-link-raw, cursor dentro) fica de fora: lá clique é pra EDITAR.
+          mousedown(event) {
+            if (event.button !== 0) return false;
             const target = event.target as HTMLElement;
+
             const wikiLinkEl = target.closest('.cm-wiki-link');
-            if (wikiLinkEl) {
+            if (wikiLinkEl && !wikiLinkEl.classList.contains('cm-wiki-link-raw')) {
               const targetName = wikiLinkEl.getAttribute('data-target');
               if (targetName) {
+                event.preventDefault();
                 useAppStore.getState().handleWikiLinkClick(targetName);
                 return true;
               }
             }
 
-            // E2 Fatia A (Spec 28): clique em #tag vira busca `#tag` (painel + grafo)
             const hashtagEl = target.closest('.cm-hashtag');
             if (hashtagEl) {
               const tag = hashtagEl.getAttribute('data-tag');
               if (tag) {
+                event.preventDefault();
                 const store = useAppStore.getState();
                 store.setLeftPanelMode('search');
                 store.setGraphSearchQuery(`#${tag}`);
                 return true;
               }
             }
+            return false;
+          },
+          click(event, view) {
+            const target = event.target as HTMLElement;
 
             const taskMarkerBox = target.closest('.cm-task-marker-box');
             if (taskMarkerBox) {

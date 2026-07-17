@@ -79,7 +79,8 @@ describe('#tags no editor (E2 Fatia A)', () => {
       expect(chip).not.toBeNull();
     });
 
-    fireEvent.click(chip!);
+    // Navegação no MOUSEDOWN (fix 17/07 — mesmo racional dos wiki-links)
+    fireEvent.mouseDown(chip!, { button: 0 });
     expect(setLeftPanelModeSpy).toHaveBeenCalledWith('search');
     expect(setGraphSearchQuerySpy).toHaveBeenCalledWith('#projeto/mycellia');
   });

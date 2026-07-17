@@ -86,8 +86,28 @@ describe('[[Nota#Título]] (E2 Fatia B)', () => {
       expect(link).not.toBeNull();
     });
 
-    fireEvent.click(link!);
+    // Navegação acontece no MOUSEDOWN (fix 17/07: no click o cursor já entrou no
+    // link, o preview vira cru e o gesto morria — era preciso clicar 2×)
+    fireEvent.mouseDown(link!, { button: 0 });
     expect(clickSpy).toHaveBeenCalledWith('Alvo#Roadmap');
+  });
+
+  it('link CRU (cursor na linha) NÃO navega no mousedown — clique ali é pra editar', async () => {
+    const clickSpy = vi.fn(async () => {});
+    useAppStore.setState({ handleWikiLinkClick: clickSpy });
+
+    // Cursor default na linha 1 = a linha do link → estado cru (.cm-wiki-link-raw)
+    const content = `[[Alvo#Roadmap]]`;
+    const { container } = render(<MarkdownEditor content={content} onChange={vi.fn()} />);
+
+    let rawLink: Element;
+    await waitFor(() => {
+      rawLink = container.querySelector('.cm-wiki-link-raw')!;
+      expect(rawLink).not.toBeNull();
+    });
+
+    fireEvent.mouseDown(rawLink!, { button: 0 });
+    expect(clickSpy).not.toHaveBeenCalled();
   });
 
   it('scroll pendente: acha o heading, move a seleção e limpa o pendente', async () => {

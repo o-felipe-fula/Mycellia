@@ -60,11 +60,13 @@ export const wikiLinkExtension = () => {
           const linkClass = `cm-wiki-link ${resolved ? 'cm-wiki-link-resolved' : 'cm-wiki-link-unresolved'}`;
 
           if (cursorNear) {
+            // Estado CRU (cursor dentro): marca com -raw pro mousedown de navegação
+            // IGNORAR — clicar aqui posiciona o cursor pra editar, não navega
             specs.push({
               from: start,
               to: end,
               dec: Decoration.mark({
-                class: linkClass,
+                class: `${linkClass} cm-wiki-link-raw`,
                 attributes: { 'data-target': target },
               }),
             });
