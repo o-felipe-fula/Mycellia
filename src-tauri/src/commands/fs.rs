@@ -1564,12 +1564,45 @@ mod tests {
         let content_1 = fs::read_to_string(&path_1).unwrap();
         assert_eq!(content_1, "Hello World!");
 
-        // 4. Salva a mesma imagem no mesmo segundo (simula colisão)
-        let filename_2 = save_pasted_image(handle.clone(), hello_b64.to_string(), ext.clone()).unwrap();
+        // 4. Colisão no MESMO segundo → sufixo _N único. O teste antigo salvava um único
+        //    par e assumia que os dois saves caíam no mesmo segundo — em CI lento o
+        //    relógio vira entre eles e o par nem colide (flake pego no Windows em
+        //    2026-07-17, run irmão do mesmo commit verde). Agora: tenta pares até um par
+        //    compartilhar o base_name (mesmo segundo) — a SEMÂNTICA testada é a mesma.
+        let strip_suffix = |name: &str| {
+            let no_ext = name.trim_end_matches(".png");
+            match no_ext.rfind('_') {
+                Some(i)
+                    if !no_ext[i + 1..].is_empty()
+                        && no_ext[i + 1..].chars().all(|c| c.is_ascii_digit()) =>
+                {
+                    no_ext[..i].to_string()
+                }
+                _ => no_ext.to_string(),
+            }
+        };
+
+        let mut winning_pair = None;
+        for _ in 0..5 {
+            let fa = save_pasted_image(handle.clone(), hello_b64.to_string(), ext.clone()).unwrap();
+            let fb = save_pasted_image(handle.clone(), hello_b64.to_string(), ext.clone()).unwrap();
+            if strip_suffix(&fa) == strip_suffix(&fb) {
+                winning_pair = Some((fa, fb));
+                break;
+            }
+        }
+        let (filename_a, filename_2) =
+            winning_pair.expect("nenhum par de saves caiu no mesmo segundo em 5 tentativas");
+
         let path_2 = attachments_dir.join(&filename_2);
         assert!(path_2.exists(), "A segunda imagem salva deve existir");
-        assert_ne!(filename_1, filename_2, "O nome do arquivo colidido deve ter um sufixo numérico");
-        assert!(filename_2.contains("_1"), "O nome deve conter o sufixo _1");
+        assert_ne!(filename_a, filename_2, "O nome do arquivo colidido deve ser único");
+        let no_ext = filename_2.trim_end_matches(".png");
+        let has_numeric_suffix = no_ext
+            .rfind('_')
+            .map(|i| !no_ext[i + 1..].is_empty() && no_ext[i + 1..].chars().all(|c| c.is_ascii_digit()))
+            .unwrap_or(false);
+        assert!(has_numeric_suffix, "O nome colidido deve conter sufixo _N (obtido: {})", filename_2);
 
         // 5. Verifica que o arquivo de controle (não-alvo) não foi alterado de forma alguma (SHA256 intacto)
         let hash_control_after = {
