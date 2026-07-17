@@ -11,6 +11,10 @@ import type { DecSpec } from './shared';
 
 export const HASHTAG_RE = /(^|\s)#([A-Za-z_][A-Za-z0-9_/-]*)/g;
 
+// E2 Fatia D (polish do Review Gate): âncora de bloco ` ^id` no fim da linha fica
+// DISCRETA no preview (é endereço, não conteúdo — padrão Obsidian)
+const BLOCK_ANCHOR_RE = /\s(\^[A-Za-z0-9-]+)\s*$/;
+
 const buildDecorations = (state: EditorState): DecorationSet => {
   const specs: DecSpec[] = [];
   const doc = state.doc;
@@ -35,6 +39,19 @@ const buildDecorations = (state: EditorState): DecorationSet => {
           attributes: { 'data-tag': match[2] },
         }),
       });
+    }
+
+    const anchorMatch = line.text.match(BLOCK_ANCHOR_RE);
+    if (anchorMatch && anchorMatch.index !== undefined) {
+      const anchorStart = line.from + anchorMatch.index + 1; // depois do espaço
+      const anchorEnd = anchorStart + anchorMatch[1].length;
+      if (!isRangeInCode(state, anchorStart, anchorEnd)) {
+        specs.push({
+          from: anchorStart,
+          to: anchorEnd,
+          dec: Decoration.mark({ class: 'cm-block-anchor' }),
+        });
+      }
     }
   }
 

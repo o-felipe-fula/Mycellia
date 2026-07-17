@@ -642,6 +642,14 @@ textarea:focus-visible,
   text-decoration: underline;
 }
 
+/* Âncora de bloco ` ^id`: endereço, não conteúdo — discreta (padrão Obsidian) */
+.cm-block-anchor {
+  opacity: 0.35;
+  font-size: 0.8em;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
 /* ===== Toolbar flutuante de seleção (E1.5 — Spec 26) ===== */
 .cm-tooltip.mycellia-seltoolbar,
 .mycellia-seltoolbar {

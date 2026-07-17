@@ -80,6 +80,17 @@ describe('Block refs [[Nota#^id]] (E2 Fatia D)', () => {
     });
   });
 
+  it('âncora ` ^id` fica discreta no preview (marcada, sem sumir do doc)', async () => {
+    const content = `Linha inicial\nfato com endereço ^meu-id`;
+    const { container } = render(<MarkdownEditor content={content} onChange={vi.fn()} />);
+
+    await waitFor(() => {
+      const anchor = container.querySelector('.cm-block-anchor');
+      expect(anchor).toBeInTheDocument();
+      expect(anchor).toHaveTextContent('^meu-id');
+    });
+  });
+
   it('![[Alvo#^fato1]] embeda só o bloco (sem a âncora)', async () => {
     const content = `Linha inicial\n![[Alvo#^fato1]]`;
     const { container } = render(<MarkdownEditor content={content} onChange={vi.fn()} />);
