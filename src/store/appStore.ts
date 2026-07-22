@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import YAML from 'yaml';
 import { parseRawNote, serializeRawNote } from '../utils/markdown';
+import { getFileKind } from '../utils/fileKind';
 
 // F3 (Spec 17): os tipos de dados vivem em ./types e a telemetria de cold start em
 // ./telemetry — re-exportados aqui para os 19 consumidores continuarem importando
@@ -58,6 +59,9 @@ export interface AppState {
   activeNoteRawFrontmatter: string | null;
   activeNoteYamlDoc: YAML.Document | null;
   activeNoteBaseSerialized: string | null;
+  // E5 (Spec 29): path cujo conteúdo está de fato em activeNoteContent — o FileViewer só
+  // monta o PlainTextEditor quando bate com activeTab (nunca com conteúdo stale de outra aba)
+  activeContentPath: string | null;
   conflictModal: { path: string; diskContent: string | null; localContentSnapshot: string } | null;
   existingNotes: Map<string, string>; // Mapeia lowercase basename/relative path para absolute path
   activeNoteBacklinks: Backlink[];
@@ -285,6 +289,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   activeNoteRawFrontmatter: null,
   activeNoteYamlDoc: null,
   activeNoteBaseSerialized: null,
+  activeContentPath: null,
   conflictModal: null,
   existingNotes: new Map<string, string>(),
   activeNoteBacklinks: [],
@@ -516,6 +521,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       activeNoteRawFrontmatter: null,
       activeNoteYamlDoc: null,
       activeNoteBaseSerialized: null,
+      activeContentPath: null,
     };
     saveConfigHelper({
       currentVault: newState.currentVault,
@@ -715,7 +721,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       await get().loadActiveNote(nextActiveTab);
       await get().loadBacklinks(nextActiveTab);
     } else if (activeTab === path) {
-      set({ activeNoteContent: null, activeNoteRawFrontmatter: null, activeNoteYamlDoc: null, activeNoteBacklinks: [], activeNoteOutgoingLinks: [] });
+      set({ activeNoteContent: null, activeNoteRawFrontmatter: null, activeNoteYamlDoc: null, activeContentPath: null, activeNoteBacklinks: [], activeNoteOutgoingLinks: [] });
     }
   },
 
@@ -743,6 +749,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           activeNoteContent: null,
           activeNoteRawFrontmatter: null,
           activeNoteYamlDoc: null,
+          activeContentPath: null,
           activeNoteBacklinks: [],
           activeNoteOutgoingLinks: [],
           ...updates
@@ -753,17 +760,62 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   loadActiveNote: async (path: string) => {
     await get().flushPendingSave();
+    const kind = getFileKind(path);
+
+    // E5 (Spec 29): PDF é binário — nunca passa por read_file (read_to_string é UTF-8-only);
+    // o PdfViewer usa o asset protocol direto. Buffer de edição fica vazio de propósito.
+    if (kind === 'pdf') {
+      set({
+        activeNoteContent: null,
+        activeNoteRawFrontmatter: null,
+        activeNoteYamlDoc: null,
+        activeNoteBaseSerialized: null,
+        activeContentPath: null,
+      });
+      return;
+    }
+
     try {
       const rawContent = await invoke<string>('read_file', { path });
+
+      // E5 (Spec 29): não-md NUNCA passa pelo parser de frontmatter — o `---` inicial de
+      // um .yaml casaria o regex e o split errado seria regravado no disco no primeiro
+      // save. Com rawFrontmatter vazio, serializeRawNote é identidade ⇒ save byte-a-byte.
+      if (kind === 'text') {
+        set({
+          activeNoteContent: rawContent,
+          activeNoteRawFrontmatter: '',
+          activeNoteYamlDoc: null,
+          activeNoteBaseSerialized: rawContent,
+          activeContentPath: path,
+        });
+        return;
+      }
+
       const { rawFrontmatter, yamlDoc, content } = parseRawNote(rawContent);
       set({
         activeNoteContent: content,
         activeNoteRawFrontmatter: rawFrontmatter,
         activeNoteYamlDoc: yamlDoc,
         activeNoteBaseSerialized: serializeRawNote(rawFrontmatter, content),
+        activeContentPath: path,
       });
     } catch (e) {
       console.error('Failed to load active note content:', e);
+
+      // E5 (Spec 29): pra não-md o fallback de buffer vazio é PROIBIDO — um '' editável
+      // salvaria por cima do arquivo (ex.: encoding não-UTF-8). Fecha a aba, avisa e
+      // delega pro app padrão.
+      if (kind === 'text') {
+        get().notify(
+          'error',
+          `Não foi possível abrir o arquivo como texto (${e}). Abrindo no aplicativo padrão.`,
+        );
+        await get().closeTab(path);
+        void get().openInDefaultApp(path);
+        return;
+      }
+
       // Endurecimento do catch (Princípio #1): Preserva o buffer em memória se a nota já estiver
       // carregada, mas define vazio se for o primeiro carregamento da aba para evitar travamento.
       if (get().activeNoteContent === null) {
@@ -1059,6 +1111,16 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   loadBacklinks: async (path: string) => {
+    // E5 (Spec 29): backlinks/links de saída só existem pra .md (não-md fica fora do
+    // índice) — limpa o painel sem consultar o índice. Só limpa se a aba não-md ainda é a
+    // ativa: o fallback de erro do loadActiveNote pode já ter devolvido o foco pra outra
+    // aba (não zerar os backlinks dela).
+    if (getFileKind(path) !== 'markdown') {
+      if (get().activeTab === path) {
+        set({ activeNoteBacklinks: [], activeNoteOutgoingLinks: [], isBacklinksLoading: false });
+      }
+      return;
+    }
     set({ isBacklinksLoading: true });
     try {
       // As duas direções da conexão: quem aponta pra cá + o que esta nota referencia

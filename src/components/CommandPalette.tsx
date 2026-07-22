@@ -10,6 +10,7 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import { useAppStore } from '../store/appStore';
 import { exportNoteAsHtml, printNote } from '../utils/exportNote';
+import { getFileKind } from '../utils/fileKind';
 
 interface Command {
   id: string;
@@ -60,7 +61,11 @@ export default function CommandPalette({ onClose, onNewNote }: CommandPalettePro
   const noteTitle = store.activeTab
     ? (store.activeTab.split(/[\\/]/).pop() || '').replace(/\.md$/, '')
     : '';
-  const hasNote = store.activeTab !== null && store.activeNoteContent !== null;
+  // E5 (Spec 29): exportação/impressão renderizam markdown — só valem pra nota .md ativa
+  const hasNote =
+    store.activeTab !== null &&
+    store.activeNoteContent !== null &&
+    getFileKind(store.activeTab) === 'markdown';
 
   const commands = useMemo<Command[]>(() => {
     const run = (fn: () => void) => () => {

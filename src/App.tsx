@@ -16,7 +16,7 @@ import {
   Hash,
 } from 'lucide-react';
 import FileTree from './components/FileTree';
-import MarkdownEditor from './components/MarkdownEditor';
+import FileViewer from './components/FileViewer';
 import BacklinksPanel from './components/BacklinksPanel';
 import TagsPanel from './components/TagsPanel';
 import { ToastContainer } from './components/ToastContainer';
@@ -49,7 +49,6 @@ export default function App() {
     closeTab,
     createItem,
     activeNoteContent,
-    updateActiveNoteContent,
     setupVaultChangeListener,
     // Layout variables
     leftPanelMode,
@@ -406,12 +405,8 @@ export default function App() {
                     {/* E1 (Spec 25): coluna de leitura confortável (teto 900px) OU largura
                         total via toggle no StatusBar — persiste no config */}
                     <div className={`w-full mx-auto h-full flex flex-col ${editorWideMode ? '' : 'max-w-[900px]'}`}>
-                      {activeNoteContent !== null && (
-                        <MarkdownEditor
-                          content={activeNoteContent}
-                          onChange={updateActiveNoteContent}
-                        />
-                      )}
+                      {/* E5 (Spec 29): FileViewer roteia por tipo (md/texto/código/pdf) */}
+                      <FileViewer />
                     </div>
                   </div>
                 ) : (
@@ -505,12 +500,8 @@ export default function App() {
                     </div>
                   ) : rightView === 'editor' && activeTab ? (
                     <div className="h-full w-full p-4 overflow-hidden">
-                      {activeNoteContent !== null && (
-                        <MarkdownEditor
-                          content={activeNoteContent}
-                          onChange={updateActiveNoteContent}
-                        />
-                      )}
+                      {/* E5 (Spec 29): FileViewer roteia por tipo (md/texto/código/pdf) */}
+                      <FileViewer />
                     </div>
                   ) : null}
                 </div>
