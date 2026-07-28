@@ -570,6 +570,42 @@ pub struct VaultChange {
     pub is_echo: bool,
 }
 
+// Árvore cega (2026-07-28): pasta criada/renomeada gera SÓ o evento da própria pasta — os
+// .md internos nunca ganham evento próprio (drag&drop, rename externo, mv de pasta). Varre
+// a pasta e devolve os .md canonicalizados pra indexação.
+fn collect_md_children_canon(dir: &Path) -> Vec<String> {
+    let mut children = Vec::new();
+    crate::commands::index_db::get_all_md_files(dir, &mut children);
+    children
+        .iter()
+        .map(|c| canonicalize_path(&c.to_string_lossy()))
+        .collect()
+}
+
+// Filhos indexados sob um path de pasta (prefixo + separador). Case-insensitive no Windows,
+// como o is_move_echo — as chaves do DB são canônicas, mas o casing do evento pode divergir.
+fn indexed_children_of(tx: &rusqlite::Transaction, dir_path: &str) -> Result<Vec<String>, String> {
+    let mut prefix = dir_path.to_string();
+    prefix.push(std::path::MAIN_SEPARATOR);
+    let mut stmt = tx.prepare("SELECT path FROM notes").map_err(|e| e.to_string())?;
+    let all: Vec<String> = stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    let prefix_cmp = if cfg!(target_os = "windows") { prefix.to_lowercase() } else { prefix };
+    Ok(all
+        .into_iter()
+        .filter(|p| {
+            if cfg!(target_os = "windows") {
+                p.to_lowercase().starts_with(&prefix_cmp)
+            } else {
+                p.starts_with(&prefix_cmp)
+            }
+        })
+        .collect())
+}
+
 fn handle_watcher_events<R: tauri::Runtime>(app: &tauri::AppHandle<R>, vault_path: &str, events: Vec<DebouncedEvent>) -> Result<(), String> {
     use std::collections::HashSet;
 
@@ -585,25 +621,51 @@ fn handle_watcher_events<R: tauri::Runtime>(app: &tauri::AppHandle<R>, vault_pat
 
     let mut paths_to_delete = HashSet::new();
     let mut paths_to_index = HashSet::new();
-    
+    // Árvore cega (2026-07-28): mudança REAL no disco que não altera o índice (pasta nova,
+    // não-md criado/removido/renomeado). O front precisa do vault-change mesmo assim — a
+    // árvore de arquivos SÓ atualiza por ele. Eventos .tmp e ecos NÃO ligam este flag.
+    let mut structural_change = false;
+
     for event in events {
+        // Create e rename mexem na ESTRUTURA da árvore; Modify(Data) de conteúdo não —
+        // marcar Data como estrutural faria cada rescrita de não-md recarregar a árvore.
+        let is_structural_kind = matches!(
+            event.event.kind,
+            notify::EventKind::Create(_) | notify::EventKind::Modify(notify::event::ModifyKind::Name(_))
+        );
         match event.event.kind {
             notify::EventKind::Modify(notify::event::ModifyKind::Name(notify::event::RenameMode::Both)) => {
                 if event.event.paths.len() >= 2 {
                     let from_path = canonicalize_path(&event.event.paths[0].to_string_lossy());
                     let to_path = canonicalize_path(&event.event.paths[1].to_string_lossy());
+                    let to_pb = event.event.paths[1].clone();
                     if !from_path.ends_with(".tmp") {
                         paths_to_delete.insert(from_path);
                     }
-                    if to_path.ends_with(".md") && !to_path.ends_with(".tmp") {
+                    if to_path.ends_with(".tmp") {
+                        // transiente da escrita atômica — ignora
+                    } else if to_path.ends_with(".md") {
                         paths_to_index.insert(to_path);
+                    } else if to_pb.is_dir() {
+                        // pasta renomeada: os .md filhos existem sob o path NOVO e só a
+                        // pasta ganhou evento — reindexa por varredura
+                        paths_to_index.extend(collect_md_children_canon(&to_pb));
+                        structural_change = true;
+                    } else {
+                        structural_change = true;
                     }
                 } else if !event.event.paths.is_empty() {
-                    let path = canonicalize_path(&event.event.paths[0].to_string_lossy());
+                    let p = event.event.paths[0].clone();
+                    let path = canonicalize_path(&p.to_string_lossy());
                     if !path.ends_with(".tmp") {
-                        if Path::new(&path).exists() {
+                        if p.exists() {
                             if path.ends_with(".md") {
                                 paths_to_index.insert(path);
+                            } else if p.is_dir() {
+                                paths_to_index.extend(collect_md_children_canon(&p));
+                                structural_change = true;
+                            } else {
+                                structural_change = true;
                             }
                         } else {
                             paths_to_delete.insert(path);
@@ -625,8 +687,18 @@ fn handle_watcher_events<R: tauri::Runtime>(app: &tauri::AppHandle<R>, vault_pat
             notify::EventKind::Modify(_) => {
                 for p in event.event.paths {
                     let path_str = canonicalize_path(&p.to_string_lossy());
-                    if path_str.ends_with(".md") && !path_str.ends_with(".tmp") && p.is_file() {
+                    if path_str.ends_with(".tmp") {
+                        continue;
+                    }
+                    if path_str.ends_with(".md") && p.is_file() {
                         paths_to_index.insert(path_str);
+                    } else if is_structural_kind {
+                        if p.is_dir() {
+                            // pasta criada/movida pra dentro do vault: o SO emite só o
+                            // evento da pasta — indexa os .md internos por varredura
+                            paths_to_index.extend(collect_md_children_canon(&p));
+                        }
+                        structural_change = true;
                     }
                 }
             }
@@ -644,8 +716,8 @@ fn handle_watcher_events<R: tauri::Runtime>(app: &tauri::AppHandle<R>, vault_pat
             }
         }
     }
-    
-    if paths_to_delete.is_empty() && paths_to_index.is_empty() {
+
+    if paths_to_delete.is_empty() && paths_to_index.is_empty() && !structural_change {
         return Ok(());
     }
     
@@ -705,7 +777,9 @@ fn handle_watcher_events<R: tauri::Runtime>(app: &tauri::AppHandle<R>, vault_pat
 
     // F4: delta do batch para o re-resolve incremental de links. União ANTES dos filtros de
     // eco (superconjunto seguro: re-resolver um path de eco é idempotente — não muda nada).
-    let changed_paths: HashSet<String> = paths_to_delete.union(&paths_to_index).cloned().collect();
+    let mut changed_paths: HashSet<String> = paths_to_delete.union(&paths_to_index).cloned().collect();
+    // Filhos descobertos na cascata de pasta removida — também entram no delta do F4.
+    let mut cascade_deleted: HashSet<String> = HashSet::new();
 
     // 2. Processar remoções e suprimir ecos de deleção transitória
     for path in paths_to_delete {
@@ -747,7 +821,7 @@ fn handle_watcher_events<R: tauri::Runtime>(app: &tauri::AppHandle<R>, vault_pat
             [&path],
             |_| Ok(true)
         ).unwrap_or(false);
-        
+
         if exists_in_db {
             crate::commands::index_db::delete_file_in_tx(&tx, &path)?;
             changes.push(VaultChange {
@@ -756,8 +830,27 @@ fn handle_watcher_events<R: tauri::Runtime>(app: &tauri::AppHandle<R>, vault_pat
                 is_echo: false,
             });
         }
+
+        // Árvore cega (2026-07-28): remoção/rename de PASTA chega como um único evento do
+        // path da pasta — sem cascata, os .md filhos indexados viram fantasmas (busca/
+        // grafo/backlinks stale até reiniciar o app). Deleta por prefixo e avisa o front
+        // (fecha abas/trata conflito das notas que estavam abertas).
+        let children = indexed_children_of(&tx, &path)?;
+        for child in &children {
+            crate::commands::index_db::delete_file_in_tx(&tx, child)?;
+            cascade_deleted.insert(child.clone());
+            changes.push(VaultChange {
+                path: child.clone(),
+                change_type: "delete".to_string(),
+                is_echo: false,
+            });
+        }
+        if !exists_in_db && children.is_empty() {
+            // path fora do índice (pasta vazia, não-md): mudança puramente estrutural
+            structural_change = true;
+        }
     }
-    
+
     // 3. Processar indexação de novos/modificados
     for path in paths_to_index {
         if is_move_echo(&path) {
@@ -815,11 +908,15 @@ fn handle_watcher_events<R: tauri::Runtime>(app: &tauri::AppHandle<R>, vault_pat
         });
     }
     
+    changed_paths.extend(cascade_deleted);
     crate::commands::index_db::re_resolve_links_incremental(&tx, vault_path, &changed_paths).map_err(|e| e.to_string())?;
 
     tx.commit().map_err(|e| e.to_string())?;
 
-    if !changes.is_empty() {
+    // Árvore cega (2026-07-28): emite também em mudança PURAMENTE estrutural (payload
+    // vazio) — pasta/não-md não mudam o índice, mas a árvore do front atualiza por este
+    // evento. Batch só de .tmp/eco continua mudo (structural_change nunca liga pra eles).
+    if !changes.is_empty() || structural_change {
         app.emit("vault-change", changes).map_err(|e| e.to_string())?;
     }
 
@@ -1068,6 +1165,250 @@ mod tests {
         assert_eq!(*vault_changes.lock().unwrap(), 0);
 
         let _ = fs::remove_dir_all(&renamed_root);
+    }
+
+    // ─── Árvore cega (2026-07-28): pastas e não-md externos invisíveis até reabrir ───
+    // O front SÓ recarrega a árvore de arquivos ao receber 'vault-change', e o emit era
+    // gateado no delta do ÍNDICE (só .md conta). Consequências provadas ao vivo no vault real:
+    // pasta nova, arquivo não-md e remoção/rename de pasta (o debouncer entrega UM evento,
+    // o da pasta) nunca atualizavam a árvore — e os .md de pasta removida/renomeada viravam
+    // fantasmas no índice (busca/grafo/backlinks stale) até reiniciar o app.
+
+    fn create_full_test_schema(conn: &rusqlite::Connection) {
+        conn.execute_batch(
+            "PRAGMA foreign_keys = ON;
+             CREATE TABLE notes (path TEXT PRIMARY KEY, title TEXT NOT NULL, last_modified INTEGER NOT NULL);
+             CREATE TABLE links (source_path TEXT NOT NULL, target_name TEXT NOT NULL, target_path TEXT,
+                 PRIMARY KEY (source_path, target_name),
+                 FOREIGN KEY (source_path) REFERENCES notes (path) ON DELETE CASCADE);
+             CREATE TABLE tags (note_path TEXT NOT NULL, tag TEXT NOT NULL,
+                 PRIMARY KEY (note_path, tag),
+                 FOREIGN KEY (note_path) REFERENCES notes (path) ON DELETE CASCADE);
+             CREATE TABLE properties (note_path TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL,
+                 PRIMARY KEY (note_path, key),
+                 FOREIGN KEY (note_path) REFERENCES notes (path) ON DELETE CASCADE);
+             CREATE VIRTUAL TABLE notes_fts USING fts5(path UNINDEXED, title, content, tags, properties);
+             CREATE TRIGGER notes_ad AFTER DELETE ON notes BEGIN
+                 DELETE FROM notes_fts WHERE path = OLD.path;
+             END;",
+        ).unwrap();
+    }
+
+    type VaultChangeEmissions = std::sync::Arc<Mutex<Vec<Vec<VaultChange>>>>;
+
+    // App mock + índice em memória com o schema real + captura tipada das emissões de vault-change.
+    fn setup_watcher_test_app(indexed_notes: &[&str]) -> (tauri::App<tauri::test::MockRuntime>, VaultChangeEmissions) {
+        let app = tauri::test::mock_builder()
+            .manage(crate::commands::index_db::DbState::default())
+            .manage(WatcherState::default())
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        create_full_test_schema(&conn);
+        for path in indexed_notes {
+            conn.execute(
+                "INSERT INTO notes (path, title, last_modified) VALUES (?, ?, 0)",
+                rusqlite::params![path, "nota"],
+            ).unwrap();
+        }
+        *app.handle().state::<crate::commands::index_db::DbState>().conn.lock().unwrap() = Some(conn);
+
+        let emissions: VaultChangeEmissions = std::sync::Arc::new(Mutex::new(Vec::new()));
+        let emissions_clone = emissions.clone();
+        app.handle().listen_any("vault-change", move |event| {
+            let parsed: Vec<VaultChange> = serde_json::from_str(event.payload()).unwrap();
+            emissions_clone.lock().unwrap().push(parsed);
+        });
+        (app, emissions)
+    }
+
+    fn indexed_paths(app: &tauri::App<tauri::test::MockRuntime>) -> Vec<String> {
+        let db_state = app.handle().state::<crate::commands::index_db::DbState>();
+        let lock = db_state.conn.lock().unwrap();
+        let conn = lock.as_ref().unwrap();
+        let mut stmt = conn.prepare("SELECT path FROM notes ORDER BY path").unwrap();
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0)).unwrap();
+        rows.collect::<Result<Vec<_>, _>>().unwrap()
+    }
+
+    #[test]
+    fn test_watcher_pasta_criada_emite_vault_change() {
+        let vault = env::temp_dir().join("mycellia_test_pasta_criada");
+        let _ = fs::remove_dir_all(&vault);
+        fs::create_dir_all(vault.join("pasta_nova")).unwrap();
+        let canon_vault = canonicalize_path(&vault.to_string_lossy());
+
+        let (app, emissions) = setup_watcher_test_app(&[]);
+
+        let event = DebouncedEvent {
+            event: notify::Event::new(notify::EventKind::Create(notify::event::CreateKind::Folder))
+                .add_path(vault.join("pasta_nova")),
+            time: Instant::now(),
+        };
+        handle_watcher_events(app.handle(), &canon_vault, vec![event]).unwrap();
+
+        let emitted = emissions.lock().unwrap();
+        assert_eq!(emitted.len(), 1, "pasta criada tem que emitir vault-change (a árvore só atualiza por ele)");
+        assert!(emitted[0].is_empty(), "pasta não entra no índice: payload estrutural vem vazio");
+        assert!(indexed_paths(&app).is_empty(), "índice permanece intocado");
+
+        let _ = fs::remove_dir_all(&vault);
+    }
+
+    #[test]
+    fn test_watcher_nao_md_criado_emite_vault_change() {
+        let vault = env::temp_dir().join("mycellia_test_nao_md_criado");
+        let _ = fs::remove_dir_all(&vault);
+        fs::create_dir_all(&vault).unwrap();
+        fs::write(vault.join("dados.json"), "{}").unwrap();
+        let canon_vault = canonicalize_path(&vault.to_string_lossy());
+
+        let (app, emissions) = setup_watcher_test_app(&[]);
+
+        let event = DebouncedEvent {
+            event: notify::Event::new(notify::EventKind::Create(notify::event::CreateKind::File))
+                .add_path(vault.join("dados.json")),
+            time: Instant::now(),
+        };
+        handle_watcher_events(app.handle(), &canon_vault, vec![event]).unwrap();
+
+        let emitted = emissions.lock().unwrap();
+        assert_eq!(emitted.len(), 1, "não-md criado tem que emitir vault-change (aparece na árvore)");
+        assert!(emitted[0].is_empty(), "não-md não entra no índice: payload estrutural vem vazio");
+        assert!(indexed_paths(&app).is_empty(), "índice permanece intocado");
+
+        let _ = fs::remove_dir_all(&vault);
+    }
+
+    #[test]
+    fn test_watcher_batch_so_de_tmp_continua_mudo() {
+        // Regressão: os .tmp da escrita atômica do próprio app são transientes — não podem
+        // virar reload de árvore (senão todo save dispararia reloads extras).
+        let vault = env::temp_dir().join("mycellia_test_tmp_mudo");
+        let _ = fs::remove_dir_all(&vault);
+        fs::create_dir_all(&vault).unwrap();
+        fs::write(vault.join("nota.md.tmp"), "transiente").unwrap();
+        let canon_vault = canonicalize_path(&vault.to_string_lossy());
+
+        let (app, emissions) = setup_watcher_test_app(&[]);
+
+        let event = DebouncedEvent {
+            event: notify::Event::new(notify::EventKind::Create(notify::event::CreateKind::File))
+                .add_path(vault.join("nota.md.tmp")),
+            time: Instant::now(),
+        };
+        handle_watcher_events(app.handle(), &canon_vault, vec![event]).unwrap();
+
+        assert_eq!(emissions.lock().unwrap().len(), 0, "batch só de .tmp permanece mudo");
+
+        let _ = fs::remove_dir_all(&vault);
+    }
+
+    #[test]
+    fn test_watcher_pasta_removida_cascateia_delete_no_indice() {
+        // rm -rf / Explorer: o debouncer entrega UM evento Remove da PASTA; os .md filhos
+        // indexados têm que sair do índice (senão viram fantasmas) e o front tem que saber.
+        let vault = env::temp_dir().join("mycellia_test_pasta_removida");
+        let _ = fs::remove_dir_all(&vault);
+        let pasta = vault.join("pasta");
+        fs::create_dir_all(&pasta).unwrap();
+        fs::write(pasta.join("a.md"), "# A").unwrap();
+        fs::write(pasta.join("b.md"), "# B").unwrap();
+        let canon_vault = canonicalize_path(&vault.to_string_lossy());
+        let canon_pasta = canonicalize_path(&pasta.to_string_lossy());
+        let canon_a = canonicalize_path(&pasta.join("a.md").to_string_lossy());
+        let canon_b = canonicalize_path(&pasta.join("b.md").to_string_lossy());
+
+        let (app, emissions) = setup_watcher_test_app(&[&canon_a, &canon_b]);
+
+        fs::remove_dir_all(&pasta).unwrap();
+        let event = DebouncedEvent {
+            event: notify::Event::new(notify::EventKind::Remove(notify::event::RemoveKind::Folder))
+                .add_path(PathBuf::from(&canon_pasta)),
+            time: Instant::now(),
+        };
+        handle_watcher_events(app.handle(), &canon_vault, vec![event]).unwrap();
+
+        assert!(indexed_paths(&app).is_empty(), "filhos da pasta removida não podem ficar fantasmas no índice");
+        let emitted = emissions.lock().unwrap();
+        assert_eq!(emitted.len(), 1, "remoção de pasta tem que emitir vault-change");
+        let mut deleted: Vec<&str> = emitted[0].iter()
+            .filter(|c| c.change_type == "delete")
+            .map(|c| c.path.as_str())
+            .collect();
+        deleted.sort_unstable();
+        let mut expected = [canon_a.as_str(), canon_b.as_str()];
+        expected.sort_unstable();
+        assert_eq!(deleted, expected, "payload precisa listar os .md filhos deletados (fecha abas/conflitos no front)");
+
+        let _ = fs::remove_dir_all(&vault);
+    }
+
+    #[test]
+    fn test_watcher_pasta_renomeada_reindexa_filhos() {
+        // Rename externo de pasta: evento Both [velha, nova]. Os paths velhos saem do índice
+        // e os .md sob o path novo entram (senão target_paths e busca ficam stale).
+        let vault = env::temp_dir().join("mycellia_test_pasta_renomeada");
+        let _ = fs::remove_dir_all(&vault);
+        let velha = vault.join("velha");
+        let nova = vault.join("nova");
+        fs::create_dir_all(&velha).unwrap();
+        fs::write(velha.join("a.md"), "# A").unwrap();
+        let canon_vault = canonicalize_path(&vault.to_string_lossy());
+        let canon_velha = canonicalize_path(&velha.to_string_lossy());
+        let canon_velha_a = canonicalize_path(&velha.join("a.md").to_string_lossy());
+
+        let (app, emissions) = setup_watcher_test_app(&[&canon_velha_a]);
+
+        fs::rename(&velha, &nova).unwrap();
+        let canon_nova_a = canonicalize_path(&nova.join("a.md").to_string_lossy());
+        let event = DebouncedEvent {
+            event: notify::Event::new(notify::EventKind::Modify(notify::event::ModifyKind::Name(notify::event::RenameMode::Both)))
+                .add_path(PathBuf::from(&canon_velha))
+                .add_path(nova.clone()),
+            time: Instant::now(),
+        };
+        handle_watcher_events(app.handle(), &canon_vault, vec![event]).unwrap();
+
+        assert_eq!(indexed_paths(&app), vec![canon_nova_a.clone()],
+            "path velho fora e path novo dentro do índice após rename de pasta");
+        let emitted = emissions.lock().unwrap();
+        assert_eq!(emitted.len(), 1, "rename de pasta tem que emitir vault-change");
+        assert!(emitted[0].iter().any(|c| c.change_type == "delete" && c.path == canon_velha_a));
+        assert!(emitted[0].iter().any(|c| c.change_type == "create" && c.path == canon_nova_a));
+
+        let _ = fs::remove_dir_all(&vault);
+    }
+
+    #[test]
+    fn test_watcher_pasta_criada_com_md_dentro_indexa_filhos() {
+        // Drag&drop de pasta pra dentro do vault: o SO emite SÓ o Create da pasta — os .md
+        // internos não ganham evento próprio e nunca eram indexados até reiniciar.
+        let vault = env::temp_dir().join("mycellia_test_pasta_com_md");
+        let _ = fs::remove_dir_all(&vault);
+        let pasta = vault.join("pasta_movida");
+        fs::create_dir_all(&pasta).unwrap();
+        fs::write(pasta.join("nota.md"), "# Nota").unwrap();
+        let canon_vault = canonicalize_path(&vault.to_string_lossy());
+        let canon_nota = canonicalize_path(&pasta.join("nota.md").to_string_lossy());
+
+        let (app, emissions) = setup_watcher_test_app(&[]);
+
+        let event = DebouncedEvent {
+            event: notify::Event::new(notify::EventKind::Create(notify::event::CreateKind::Folder))
+                .add_path(pasta.clone()),
+            time: Instant::now(),
+        };
+        handle_watcher_events(app.handle(), &canon_vault, vec![event]).unwrap();
+
+        assert_eq!(indexed_paths(&app), vec![canon_nota.clone()],
+            "os .md dentro da pasta criada têm que entrar no índice");
+        let emitted = emissions.lock().unwrap();
+        assert_eq!(emitted.len(), 1);
+        assert!(emitted[0].iter().any(|c| c.change_type == "create" && c.path == canon_nota));
+
+        let _ = fs::remove_dir_all(&vault);
     }
 
     #[test]

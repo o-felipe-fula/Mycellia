@@ -106,6 +106,27 @@ describe('File Watching and Disk Synchronization tests', () => {
     unlisten();
   });
 
+  it('Árvore cega: vault-change ESTRUTURAL (payload vazio — pasta/não-md) recarrega a árvore', async () => {
+    await useAppStore.getState().initApp();
+    const unlisten = await useAppStore.getState().setupVaultChangeListener();
+
+    // Pasta nova ou arquivo não-md criado externamente: o Rust emite vault-change SEM
+    // mudanças de índice (payload vazio). A árvore tem que recarregar mesmo assim —
+    // early-return em payload vazio reintroduziria a árvore cega (2026-07-28).
+    mockFiles['C:\\MyVault\\Nota C.md'] = 'representa a mudança estrutural no disco';
+    (window as TestWindow).__triggerTauriEvent?.('vault-change', []);
+
+    await vi.waitFor(
+      () => {
+        const tree = useAppStore.getState().fileTree;
+        expect(tree?.children?.some((c) => c.name === 'Nota C.md')).toBe(true);
+      },
+      { timeout: 5000 }
+    );
+
+    unlisten();
+  });
+
   it('Corrida do Eco: não deve disparar recarga se o evento do watcher for um eco de nossa própria escrita', async () => {
     await useAppStore.getState().initApp();
     await useAppStore.getState().openTab('C:\\MyVault\\Nota A.md');

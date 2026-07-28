@@ -143,8 +143,10 @@ fn init_db_connection(db_path: &Path) -> Result<Connection, rusqlite::Error> {
     Ok(conn)
 }
 
-// Varre recursivamente a pasta coletando caminhos de arquivos markdown
-fn get_all_md_files(dir: &Path, files: &mut Vec<PathBuf>) {
+// Varre recursivamente a pasta coletando caminhos de arquivos markdown.
+// pub(crate): o watcher (fs.rs) reusa a MESMA semântica de varredura (pula dotfiles) pra
+// indexar .md de pastas criadas/renomeadas — que chegam como um único evento da pasta.
+pub(crate) fn get_all_md_files(dir: &Path, files: &mut Vec<PathBuf>) {
     if dir.is_dir() {
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
