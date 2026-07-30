@@ -60,6 +60,29 @@
     "watchActive": "Watch active",
     "watchInactive": "Watch inactive"
   },
+  "fileTree": {
+    "menuNewNote": "New Note (.md)",
+    "menuNewFolder": "New Folder",
+    "menuRename": "Rename",
+    "menuDelete": "Delete",
+    "newFolderTitle": "New folder",
+    "newFolderPlaceholder": "Folder name",
+    "newFolderConfirm": "Create folder",
+    "renameTitle": "Rename",
+    "renameDesc": "Renaming \"{{name}}\"",
+    "renameConfirm": "Rename",
+    "deleteTitle": "Move to trash",
+    "deleteMessage": "\"{{name}}\" will be moved to the system trash. You can restore it from there if you change your mind.",
+    "deleteConfirm": "Move to trash",
+    "createNoteError": "Error creating note: {{error}}",
+    "createFolderError": "Error creating folder: {{error}}",
+    "renameError": "Error renaming: {{error}}",
+    "deleteError": "Error deleting: {{error}}"
+  },
+  "search": {
+    "noResults": "No results for «{{query}}».",
+    "results": "Search results ({{total}})"
+  },
   "titleBar": {
     "minimize": "Minimize",
     "maximize": "Maximize",

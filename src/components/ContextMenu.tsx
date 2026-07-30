@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import { FilePlus, FolderPlus, Edit, Trash2 } from 'lucide-react';
 
 interface ContextMenuProps {
@@ -21,6 +22,7 @@ export default function ContextMenu({
   onRename,
   onDelete,
 }: ContextMenuProps) {
+  const { t } = useTranslation();
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Fecha ao clicar fora ou apertar Esc
@@ -84,7 +86,7 @@ export default function ContextMenu({
         className="flex items-center gap-2.5 px-3 py-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--substrate-raised)] text-left cursor-pointer transition-colors"
       >
         <FilePlus className="w-4 h-4 text-[var(--accent)]" />
-        <span>Nova Nota (.md)</span>
+        <span>{t('fileTree.menuNewNote')}</span>
       </button>
 
       <button
@@ -95,7 +97,7 @@ export default function ContextMenu({
         className="flex items-center gap-2.5 px-3 py-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--substrate-raised)] text-left cursor-pointer transition-colors"
       >
         <FolderPlus className="w-4 h-4 text-[var(--tag)]" />
-        <span>Nova Pasta</span>
+        <span>{t('fileTree.menuNewFolder')}</span>
       </button>
 
       <div className="h-[1px] bg-[var(--border-subtle)] my-1" />
@@ -108,7 +110,7 @@ export default function ContextMenu({
         className="flex items-center gap-2.5 px-3 py-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--substrate-raised)] text-left cursor-pointer transition-colors"
       >
         <Edit className="w-4 h-4 text-[var(--accent)]" />
-        <span>Renomear</span>
+        <span>{t('fileTree.menuRename')}</span>
       </button>
 
       <button
@@ -119,7 +121,7 @@ export default function ContextMenu({
         className="flex items-center gap-2.5 px-3 py-2 text-[var(--danger)] hover:bg-[var(--danger-muted)] hover:text-[var(--danger)] text-left cursor-pointer transition-colors"
       >
         <Trash2 className="w-4 h-4" />
-        <span>Excluir</span>
+        <span>{t('fileTree.menuDelete')}</span>
       </button>
     </div>,
     document.body,

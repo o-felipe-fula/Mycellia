@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useAppStore, FileNode } from '../store/appStore';
 import { Folder, FolderOpen, FileText, FileCode, Image, File, ChevronDown, ChevronRight, FilePlus, FolderPlus, Edit, Shapes } from 'lucide-react';
 import { getFileKind } from '../utils/fileKind';
@@ -38,6 +39,7 @@ interface FileTreeProps {
 let activeDragPath: string | null = null;
 
 export default function FileTree({ node }: FileTreeProps) {
+  const { t } = useTranslation();
   const { createItem, renameItem, deleteItem, openTab, activeTab, openInDefaultApp, moveItem, platform, notify } = useAppStore();
   const [expanded, setExpanded] = useState<Record<string, boolean>>({ [node.path]: true });
   const [draggedOverPath, setDraggedOverPath] = useState<string | null>(null);
@@ -152,7 +154,7 @@ export default function FileTree({ node }: FileTreeProps) {
       setModal(null);
     } catch (err) {
       setModal(null);
-      notify('error', `Erro ao criar nota: ${err}`);
+      notify('error', t('fileTree.createNoteError', { error: String(err) }));
     }
   };
 
@@ -164,7 +166,7 @@ export default function FileTree({ node }: FileTreeProps) {
       setModal(null);
     } catch (err) {
       setModal(null);
-      notify('error', `Erro ao criar pasta: ${err}`);
+      notify('error', t('fileTree.createFolderError', { error: String(err) }));
     }
   };
 
@@ -178,7 +180,7 @@ export default function FileTree({ node }: FileTreeProps) {
       setModal(null);
     } catch (err) {
       setModal(null);
-      notify('error', `Erro ao renomear: ${err}`);
+      notify('error', t('fileTree.renameError', { error: String(err) }));
     }
   };
 
@@ -188,7 +190,7 @@ export default function FileTree({ node }: FileTreeProps) {
       setModal(null);
     } catch (err) {
       setModal(null);
-      notify('error', `Erro ao excluir: ${err}`);
+      notify('error', t('fileTree.deleteError', { error: String(err) }));
     }
   };
 
@@ -394,9 +396,9 @@ export default function FileTree({ node }: FileTreeProps) {
       {/* Modais do DS (UI polish 2026-07-16): fim dos prompt()/confirm() nativos */}
       {modal?.kind === 'create-file' && (
         <InputModal
-          title="Nova nota"
-          placeholder="Nome da nota (ex: Minha Nota)"
-          confirmLabel="Criar nota"
+          title={t('app.newNoteTitle')}
+          placeholder={t('app.newNotePlaceholder')}
+          confirmLabel={t('app.newNoteConfirm')}
           icon={<FilePlus className="w-5 h-5 text-[var(--accent)]" />}
           validate={validateItemName}
           onConfirm={(name) => confirmCreateFile(modal.parentPath, name)}
@@ -405,9 +407,9 @@ export default function FileTree({ node }: FileTreeProps) {
       )}
       {modal?.kind === 'create-folder' && (
         <InputModal
-          title="Nova pasta"
-          placeholder="Nome da pasta"
-          confirmLabel="Criar pasta"
+          title={t('fileTree.newFolderTitle')}
+          placeholder={t('fileTree.newFolderPlaceholder')}
+          confirmLabel={t('fileTree.newFolderConfirm')}
           icon={<FolderPlus className="w-5 h-5 text-[var(--tag)]" />}
           validate={validateItemName}
           onConfirm={(name) => confirmCreateFolder(modal.parentPath, name)}
@@ -416,10 +418,10 @@ export default function FileTree({ node }: FileTreeProps) {
       )}
       {modal?.kind === 'rename' && (
         <InputModal
-          title="Renomear"
-          description={`Renomeando "${modal.target.name}"`}
+          title={t('fileTree.renameTitle')}
+          description={t('fileTree.renameDesc', { name: modal.target.name })}
           initialValue={modal.target.name.replace('.md', '')}
-          confirmLabel="Renomear"
+          confirmLabel={t('fileTree.renameConfirm')}
           icon={<Edit className="w-5 h-5 text-[var(--accent)]" />}
           validate={validateItemName}
           onConfirm={(name) => confirmRename(modal.target, name)}
@@ -428,9 +430,9 @@ export default function FileTree({ node }: FileTreeProps) {
       )}
       {modal?.kind === 'delete' && (
         <ConfirmModal
-          title="Mover para a lixeira"
-          message={`"${modal.target.name}" será movido para a lixeira do sistema. Você pode restaurar de lá se mudar de ideia.`}
-          confirmLabel="Mover para a lixeira"
+          title={t('fileTree.deleteTitle')}
+          message={t('fileTree.deleteMessage', { name: modal.target.name })}
+          confirmLabel={t('fileTree.deleteConfirm')}
           danger
           onConfirm={() => confirmDelete(modal.target)}
           onCancel={() => setModal(null)}

@@ -60,6 +60,29 @@
     "watchActive": "Watch ativo",
     "watchInactive": "Watch inativo"
   },
+  "fileTree": {
+    "menuNewNote": "Nova Nota (.md)",
+    "menuNewFolder": "Nova Pasta",
+    "menuRename": "Renomear",
+    "menuDelete": "Excluir",
+    "newFolderTitle": "Nova pasta",
+    "newFolderPlaceholder": "Nome da pasta",
+    "newFolderConfirm": "Criar pasta",
+    "renameTitle": "Renomear",
+    "renameDesc": "Renomeando \"{{name}}\"",
+    "renameConfirm": "Renomear",
+    "deleteTitle": "Mover para a lixeira",
+    "deleteMessage": "\"{{name}}\" será movido para a lixeira do sistema. Você pode restaurar de lá se mudar de ideia.",
+    "deleteConfirm": "Mover para a lixeira",
+    "createNoteError": "Erro ao criar nota: {{error}}",
+    "createFolderError": "Erro ao criar pasta: {{error}}",
+    "renameError": "Erro ao renomear: {{error}}",
+    "deleteError": "Erro ao excluir: {{error}}"
+  },
+  "search": {
+    "noResults": "Nenhum resultado para «{{query}}».",
+    "results": "Resultados da busca ({{total}})"
+  },
   "titleBar": {
     "minimize": "Minimizar",
     "maximize": "Maximizar",
