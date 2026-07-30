@@ -11,6 +11,7 @@ import { Excalidraw, serializeAsJSON, getSceneVersion } from '@excalidraw/excali
 import '@excalidraw/excalidraw/index.css';
 import { Shapes } from 'lucide-react';
 import { useAppStore } from '../store/appStore';
+import i18n from '../i18n';
 
 type ExcalidrawOnChange = Parameters<
   NonNullable<React.ComponentProps<typeof Excalidraw>['onChange']>
@@ -62,13 +63,13 @@ export default function ExcalidrawEditor({ content, onChange }: ExcalidrawEditor
       notifiedRef.current = true;
       useAppStore
         .getState()
-        .notify('warning', 'Canvas com JSON inválido — exibindo o conteúdo cru (somente leitura).');
+        .notify('warning', i18n.t('canvas.invalidJsonToast'));
     }
     return (
       <div className="flex flex-col h-full w-full overflow-hidden">
-        <Header filename={filename} badge="excalidraw · json inválido" />
+        <Header filename={filename} badge={i18n.t('canvas.badgeExcalidrawInvalid')} />
         <div className="flex-shrink-0 text-xs text-[var(--text-muted)] mb-2 select-none">
-          Visualização somente leitura. Para corrigir, edite o arquivo fora do app (ou renomeie para .json).
+          {i18n.t('canvas.readOnlyHint')}
         </div>
         <pre
           data-testid="excalidraw-fallback"
@@ -91,7 +92,7 @@ export default function ExcalidrawEditor({ content, onChange }: ExcalidrawEditor
 
   return (
     <div className="flex flex-col h-full w-full overflow-hidden">
-      <Header filename={filename} badge="excalidraw" />
+      <Header filename={filename} badge={i18n.t('canvas.badgeExcalidraw')} />
       <div
         data-testid="excalidraw-host"
         className="flex-1 min-h-0 rounded-lg overflow-hidden border border-[var(--border-subtle)]"

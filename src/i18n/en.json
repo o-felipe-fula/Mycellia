@@ -79,6 +79,83 @@
     "renameError": "Error renaming: {{error}}",
     "deleteError": "Error deleting: {{error}}"
   },
+  "editor": {
+    "emptyName": "The file name cannot be empty",
+    "invalidChars": "The file name contains invalid characters. Don't use: \\ / : * ? \" < > |",
+    "untitled": "Untitled",
+    "modeSourceTooltip": "Source mode: raw markdown, no render — click (or Ctrl+E) to return to Editing",
+    "modeEditTooltip": "Editing mode: live preview — click (or Ctrl+E) to see the raw markdown",
+    "modeAria": "Toggle note display mode",
+    "modeSource": "Source",
+    "modeEdit": "Editing"
+  },
+  "canvas": {
+    "invalidJsonToast": "Canvas has invalid JSON — showing raw content (read-only).",
+    "readOnlyHint": "Read-only view. To fix it, edit the file outside the app (or rename it to .json).",
+    "notInVault": "File is no longer in the vault: {{path}}",
+    "notFound": "not found in vault",
+    "badgeCanvas": "canvas",
+    "badgeCanvasInvalid": "canvas · invalid json",
+    "badgeExcalidraw": "excalidraw",
+    "badgeExcalidrawInvalid": "excalidraw · invalid json"
+  },
+  "spell": {
+    "searching": "Finding suggestions…",
+    "addToDictionary": "Add to dictionary",
+    "ignoreSession": "Ignore this session",
+    "noSuggestions": "No suggestions",
+    "addError": "Could not save to the personal dictionary."
+  },
+  "embed": {
+    "loadError": "⚠️ Could not load {{name}}"
+  },
+  "slash": {
+    "calloutLabel": "Callout — {{name}}",
+    "h1": "Heading 1",
+    "h2": "Heading 2",
+    "h3": "Heading 3",
+    "list": "List",
+    "numberedList": "Numbered list",
+    "checklist": "Checklist",
+    "table": "Table",
+    "codeBlock": "Code block",
+    "mermaid": "Diagram (Mermaid)",
+    "quote": "Quote",
+    "divider": "Divider",
+    "phTitle": "Title",
+    "phContent": "Content",
+    "phItem": "item",
+    "phTask": "task",
+    "phCol1": "Column 1",
+    "phCol2": "Column 2",
+    "phLanguage": "language",
+    "calloutName": {
+      "note": "Note",
+      "tip": "Tip",
+      "info": "Info",
+      "warning": "Warning",
+      "danger": "Danger",
+      "success": "Success",
+      "question": "Question",
+      "example": "Example",
+      "quote": "Quote",
+      "abstract": "Abstract",
+      "todo": "To do",
+      "failure": "Failure",
+      "bug": "Bug"
+    }
+  },
+  "toolbar": {
+    "bold": "Bold",
+    "italic": "Italic",
+    "strike": "Strikethrough",
+    "highlight": "Highlight",
+    "underline": "Underline",
+    "inlineCode": "Inline code",
+    "wikiLink": "Wiki-link",
+    "quote": "Quote",
+    "toCallout": "Turn into callout"
+  },
   "backlinks": {
     "incoming": "Linking here",
     "incomingEmpty": "No note links to this one yet.",

@@ -79,6 +79,83 @@
     "renameError": "Erro ao renomear: {{error}}",
     "deleteError": "Erro ao excluir: {{error}}"
   },
+  "editor": {
+    "emptyName": "O nome do arquivo não pode ser vazio",
+    "invalidChars": "O nome do arquivo contém caracteres inválidos. Não use: \\ / : * ? \" < > |",
+    "untitled": "Sem título",
+    "modeSourceTooltip": "Modo Fonte: markdown cru, sem render — clique (ou Ctrl+E) para voltar à Edição",
+    "modeEditTooltip": "Modo Edição: preview ao vivo — clique (ou Ctrl+E) para ver o markdown cru",
+    "modeAria": "Alternar modo de exibição da nota",
+    "modeSource": "Fonte",
+    "modeEdit": "Edição"
+  },
+  "canvas": {
+    "invalidJsonToast": "Canvas com JSON inválido — exibindo o conteúdo cru (somente leitura).",
+    "readOnlyHint": "Visualização somente leitura. Para corrigir, edite o arquivo fora do app (ou renomeie para .json).",
+    "notInVault": "Arquivo não está mais no vault: {{path}}",
+    "notFound": "não encontrado no vault",
+    "badgeCanvas": "canvas",
+    "badgeCanvasInvalid": "canvas · json inválido",
+    "badgeExcalidraw": "excalidraw",
+    "badgeExcalidrawInvalid": "excalidraw · json inválido"
+  },
+  "spell": {
+    "searching": "Buscando sugestões…",
+    "addToDictionary": "Adicionar ao dicionário",
+    "ignoreSession": "Ignorar nesta sessão",
+    "noSuggestions": "Sem sugestões",
+    "addError": "Não foi possível salvar no dicionário pessoal."
+  },
+  "embed": {
+    "loadError": "⚠️ Não foi possível carregar {{name}}"
+  },
+  "slash": {
+    "calloutLabel": "Callout — {{name}}",
+    "h1": "Título 1",
+    "h2": "Título 2",
+    "h3": "Título 3",
+    "list": "Lista",
+    "numberedList": "Lista numerada",
+    "checklist": "Checklist",
+    "table": "Tabela",
+    "codeBlock": "Bloco de código",
+    "mermaid": "Diagrama (Mermaid)",
+    "quote": "Citação",
+    "divider": "Divisor",
+    "phTitle": "Título",
+    "phContent": "Conteúdo",
+    "phItem": "item",
+    "phTask": "tarefa",
+    "phCol1": "Coluna 1",
+    "phCol2": "Coluna 2",
+    "phLanguage": "linguagem",
+    "calloutName": {
+      "note": "Nota",
+      "tip": "Dica",
+      "info": "Info",
+      "warning": "Atenção",
+      "danger": "Perigo",
+      "success": "Sucesso",
+      "question": "Pergunta",
+      "example": "Exemplo",
+      "quote": "Citação",
+      "abstract": "Resumo",
+      "todo": "A fazer",
+      "failure": "Falha",
+      "bug": "Bug"
+    }
+  },
+  "toolbar": {
+    "bold": "Negrito",
+    "italic": "Itálico",
+    "strike": "Riscado",
+    "highlight": "Destacar",
+    "underline": "Sublinhar",
+    "inlineCode": "Código inline",
+    "wikiLink": "Wiki-link",
+    "quote": "Citação",
+    "toCallout": "Transformar em callout"
+  },
   "backlinks": {
     "incoming": "Apontam para cá",
     "incomingEmpty": "Nenhuma nota aponta para esta ainda.",

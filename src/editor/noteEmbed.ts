@@ -8,6 +8,7 @@
 import { WidgetType } from '@codemirror/view';
 import { invoke } from '@tauri-apps/api/core';
 import { useAppStore } from '../store/appStore';
+import i18n from '../i18n';
 import { renderMarkdownFragment } from './callouts';
 
 const IMAGE_EXTS = /\.(png|jpe?g|gif|webp|svg|bmp|ico|avif)$/i;
@@ -246,7 +247,7 @@ async function buildEmbedShell(
     console.error('Failed to load embed content:', e);
     const err = document.createElement('div');
     err.className = 'mycellia-callout-body mycellia-embed-missing';
-    err.textContent = `⚠️ Não foi possível carregar ${target.noteName}`;
+    err.textContent = i18n.t('embed.loadError', { name: target.noteName });
     card.appendChild(err);
   }
 
@@ -285,7 +286,7 @@ export class NoteEmbedWidget extends WidgetType {
       .catch((e) => {
         if (this.destroyed) return;
         console.error('Embed render error:', e);
-        placeholder.textContent = `⚠️ Não foi possível carregar ${this.target.noteName}`;
+        placeholder.textContent = i18n.t('embed.loadError', { name: this.target.noteName });
       });
 
     // Cliques autocontidos (padrão CalloutWidget): header/link estático navegam via
