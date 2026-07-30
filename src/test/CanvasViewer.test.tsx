@@ -1,16 +1,41 @@
 // E4 Fatia 1 (Spec 30): viewer read-only de .canvas (JSON Canvas / Obsidian).
 // Contratos pinados: roteamento do kind novo · render dos 4 tipos de nó + arestas ·
 // markdown nos nós text (wiki-link achatado) · navegação por clique em nó file ·
+// resolução de nó file exato→basename (vault reorganizado pós-Obsidian) ·
 // fail-soft de JSON corrompido · ZERO write (read-only por construção).
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
-import { useAppStore } from '../store/appStore';
+import { useAppStore, FileNode } from '../store/appStore';
 import { getFileKind } from '../utils/fileKind';
 import CanvasViewer from '../components/CanvasViewer';
 
 const VAULT = 'C:\\MyVault';
 const CANVAS_PATH = 'C:\\MyVault\\Mapas\\Fluxo.canvas';
+
+// Árvore com a nota em pasta NOVA (o canvas aponta pro path antigo da era Obsidian)
+const TREE: FileNode = {
+  name: 'MyVault',
+  path: VAULT,
+  is_dir: true,
+  children: [
+    {
+      name: '60_Library',
+      path: 'C:\\MyVault\\60_Library',
+      is_dir: true,
+      children: [
+        {
+          name: 'IA',
+          path: 'C:\\MyVault\\60_Library\\IA',
+          is_dir: true,
+          children: [
+            { name: 'Nota Alvo.md', path: 'C:\\MyVault\\60_Library\\IA\\Nota Alvo.md', is_dir: false },
+          ],
+        },
+      ],
+    },
+  ],
+};
 
 const FIXTURE = {
   nodes: [
@@ -42,7 +67,7 @@ function mockReadFile(files: Record<string, string>) {
 describe('E4 Fatia 1 — CanvasViewer (.canvas read-only)', () => {
   beforeEach(() => {
     vi.mocked(invoke).mockReset();
-    useAppStore.setState({ currentVault: VAULT, notifications: [] });
+    useAppStore.setState({ currentVault: VAULT, notifications: [], fileTree: null });
   });
 
   afterEach(() => {
@@ -102,6 +127,61 @@ describe('E4 Fatia 1 — CanvasViewer (.canvas read-only)', () => {
       const fileNode = await screen.findByTestId('canvas-node-n2');
       fireEvent.click(fileNode);
       expect(openTabSpy).toHaveBeenCalledWith('C:\\MyVault\\Subpasta\\Nota Alvo.md');
+    } finally {
+      useAppStore.setState({ openTab: originalOpenTab });
+    }
+  });
+
+  it('nó file com path da era Obsidian resolve por basename na árvore (vault reorganizado)', async () => {
+    const MOVED = 'C:\\MyVault\\60_Library\\IA\\Nota Alvo.md';
+    mockReadFile({
+      [CANVAS_PATH]: JSON.stringify({
+        nodes: [{ id: 'm1', type: 'file', file: 'Estudos/A.I/Nota Alvo.md', x: 0, y: 0, width: 320, height: 240 }],
+        edges: [],
+      }),
+      [MOVED]: 'corpo da nota que MUDOU de pasta',
+    });
+    useAppStore.setState({ fileTree: TREE });
+    const openTabSpy = vi.fn();
+    const originalOpenTab = useAppStore.getState().openTab;
+    useAppStore.setState({ openTab: openTabSpy });
+
+    try {
+      render(<CanvasViewer path={CANVAS_PATH} />);
+      const fileNode = await screen.findByTestId('canvas-node-m1');
+      // preview veio do path NOVO (resolvido por basename, semântica F4 dos wiki-links)
+      await waitFor(() => {
+        expect(fileNode.textContent).toContain('corpo da nota que MUDOU de pasta');
+      });
+      // clique navega pro path NOVO
+      fireEvent.click(fileNode);
+      expect(openTabSpy).toHaveBeenCalledWith(MOVED);
+    } finally {
+      useAppStore.setState({ openTab: originalOpenTab });
+    }
+  });
+
+  it('nó file inexistente até por basename: card avisa, clique não navega e notifica', async () => {
+    mockReadFile({
+      [CANVAS_PATH]: JSON.stringify({
+        nodes: [{ id: 'x1', type: 'file', file: 'Sumiu/Fantasma.md', x: 0, y: 0, width: 320, height: 240 }],
+        edges: [],
+      }),
+    });
+    useAppStore.setState({ fileTree: TREE });
+    const openTabSpy = vi.fn();
+    const originalOpenTab = useAppStore.getState().openTab;
+    useAppStore.setState({ openTab: openTabSpy });
+
+    try {
+      render(<CanvasViewer path={CANVAS_PATH} />);
+      const fileNode = await screen.findByTestId('canvas-node-x1');
+      expect(fileNode.textContent).toContain('não encontrado no vault');
+      fireEvent.click(fileNode);
+      expect(openTabSpy).not.toHaveBeenCalled();
+      expect(
+        useAppStore.getState().notifications.some((n) => n.message.includes('não está mais no vault'))
+      ).toBe(true);
     } finally {
       useAppStore.setState({ openTab: originalOpenTab });
     }

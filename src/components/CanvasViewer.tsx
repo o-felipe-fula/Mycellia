@@ -10,6 +10,7 @@ import { Shapes, FileText, File as FileIcon, Link2, Image as ImageIcon } from 'l
 import { useAppStore } from '../store/appStore';
 import { getFileKind, getExtension } from '../utils/fileKind';
 import { renderMarkdownFragment } from '../utils/exportNote';
+import { findFileInTree, findFilePathInTree } from '../editor/utils';
 
 interface CanvasViewerProps {
   path: string;
@@ -129,20 +130,25 @@ function edgeGeometry(from: { x: number; y: number }, fromSide: Side, to: { x: n
   return { d, arrow, mid };
 }
 
+// Resultado da resolução de um nó `file` contra o vault ATUAL (ver resolveFileNode)
+interface FileNodeTarget {
+  abs: string;
+  missing: boolean;
+}
+
 // ── Card de nó `file`: preview de .md (mesmo pipeline do export), <img> pra imagem,
 //    ícone+nome pro resto. Clique navega (openTab) ou delega (app padrão). ──
-function FileNodeCard({ relPath }: { relPath: string }) {
-  const { currentVault } = useAppStore();
+function FileNodeCard({ relPath, target }: { relPath: string; target: FileNodeTarget }) {
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
   const name = relPath.split(/[\\/]/).pop() || relPath;
   const ext = getExtension(relPath);
-  const abs = currentVault ? joinVaultPath(currentVault, relPath) : relPath;
-  const kind = getFileKind(relPath);
+  const { abs, missing } = target;
+  const kind = getFileKind(abs);
 
   useEffect(() => {
     let cancelled = false;
     setPreviewHtml(null);
-    if (kind !== 'markdown') return;
+    if (missing || kind !== 'markdown') return;
     invoke<string>('read_file', { path: abs })
       .then((raw) => {
         if (!cancelled) setPreviewHtml(renderMarkdownFragment(raw));
@@ -153,7 +159,21 @@ function FileNodeCard({ relPath }: { relPath: string }) {
     return () => {
       cancelled = true;
     };
-  }, [abs, kind]);
+  }, [abs, kind, missing]);
+
+  if (missing) {
+    return (
+      <div className="w-full h-full flex flex-col overflow-hidden">
+        <div className="flex items-center gap-1.5 px-2 py-1 text-xs font-semibold text-[var(--text-secondary)] border-b border-[var(--border-subtle)] select-none">
+          {kind === 'markdown' ? <FileText className="w-3.5 h-3.5 flex-shrink-0" /> : <FileIcon className="w-3.5 h-3.5 flex-shrink-0" />}
+          <span className="truncate">{name}</span>
+        </div>
+        <div className="flex-1 flex items-center justify-center px-3 text-xs italic text-[var(--text-muted)] select-none text-center">
+          não encontrado no vault
+        </div>
+      </div>
+    );
+  }
 
   if (IMAGE_EXTS.has(ext)) {
     return (
@@ -192,7 +212,22 @@ export default function CanvasViewer({ path }: CanvasViewerProps) {
   const [view, setView] = useState({ tx: 60, ty: 60, s: 1 });
   const dragRef = useRef<{ x: number; y: number } | null>(null);
   const movedRef = useRef(false);
-  const { openTab, openInDefaultApp, currentVault } = useAppStore();
+  const { openTab, openInDefaultApp, currentVault, fileTree } = useAppStore();
+
+  // Nós `file` guardam o path relativo da ÉPOCA em que o canvas foi salvo no Obsidian.
+  // Vault reorganizado desde então ⇒ caminho morto com o arquivo vivo em outra pasta.
+  // Fallback com a MESMA semântica dos wiki-links (F4, exato-primeiro): 1) path exato
+  // relativo à raiz → 2) basename na árvore inteira → 3) marcado como inexistente.
+  // Sem árvore carregada, segue otimista no path exato (read fail-soft cobre o resto).
+  const resolveFileNode = (relPath: string): FileNodeTarget => {
+    const abs = currentVault ? joinVaultPath(currentVault, relPath) : relPath;
+    if (!fileTree) return { abs, missing: false };
+    if (findFilePathInTree(fileTree, abs)) return { abs, missing: false };
+    const name = relPath.split(/[\\/]/).pop() || relPath;
+    const found = findFileInTree(fileTree, name);
+    if (found) return { abs: found, missing: false };
+    return { abs, missing: true };
+  };
 
   const filename = path.split(/[\\/]/).pop() || '';
 
@@ -286,7 +321,11 @@ export default function CanvasViewer({ path }: CanvasViewerProps) {
   const handleFileNodeClick = (relPath: string) => {
     if (movedRef.current) return;
     if (!currentVault) return;
-    const abs = joinVaultPath(currentVault, relPath);
+    const { abs, missing } = resolveFileNode(relPath);
+    if (missing) {
+      useAppStore.getState().notify('warning', `Arquivo não está mais no vault: ${relPath}`);
+      return;
+    }
     if (getFileKind(abs) === 'external') {
       void openInDefaultApp(abs);
     } else {
@@ -428,16 +467,17 @@ export default function CanvasViewer({ path }: CanvasViewerProps) {
               );
             }
             if (n.type === 'file') {
+              const target = resolveFileNode(n.file ?? '');
               return (
                 <div
                   key={n.id}
                   data-testid={`canvas-node-${n.id}`}
-                  className={`${base} cursor-pointer hover:border-[var(--accent-dim)] transition-colors`}
+                  className={`${base} cursor-pointer hover:border-[var(--accent-dim)] transition-colors ${target.missing ? 'opacity-60' : ''}`}
                   style={style}
                   onClick={() => n.file && handleFileNodeClick(n.file)}
                   title={n.file}
                 >
-                  <FileNodeCard relPath={n.file ?? ''} />
+                  <FileNodeCard relPath={n.file ?? ''} target={target} />
                 </div>
               );
             }
