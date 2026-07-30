@@ -9,7 +9,7 @@ import PlainTextEditor from './PlainTextEditor';
 import PdfViewer from './PdfViewer';
 
 // E4 (Spec 30): superfícies de canvas são lazy — o app não paga o peso sem abrir canvas
-const CanvasViewer = lazy(() => import('./CanvasViewer'));
+const CanvasEditor = lazy(() => import('./CanvasEditor'));
 const ExcalidrawEditor = lazy(() => import('./ExcalidrawEditor'));
 
 export default function FileViewer() {
@@ -24,9 +24,12 @@ export default function FileViewer() {
   }
 
   if (kind === 'canvas') {
+    // E4.3 (Spec 31): .canvas virou EDITÁVEL — mesmo gate/fiação do Excalidraw (conteúdo
+    // real da aba + key por aba ⇒ parse 1x por abertura, save pelo pipeline sagrado)
+    if (activeNoteContent === null || activeContentPath !== activeTab) return null;
     return (
       <Suspense fallback={null}>
-        <CanvasViewer path={activeTab} />
+        <CanvasEditor key={activeTab} content={activeNoteContent} onChange={updateActiveNoteContent} />
       </Suspense>
     );
   }

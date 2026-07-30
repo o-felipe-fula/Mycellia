@@ -764,9 +764,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     // E5 (Spec 29): PDF é binário — nunca passa por read_file (read_to_string é UTF-8-only);
     // o PdfViewer usa o asset protocol direto. Buffer de edição fica vazio de propósito.
-    // E4 (Spec 30): canvas idem — o CanvasViewer lê sozinho e é read-only por construção;
-    // buffer de edição NUNCA existe pra .canvas (nenhum caminho de write, L1 da spec).
-    if (kind === 'pdf' || kind === 'canvas') {
+    if (kind === 'pdf') {
       set({
         activeNoteContent: null,
         activeNoteRawFrontmatter: null,
@@ -785,7 +783,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       // save. Com rawFrontmatter vazio, serializeRawNote é identidade ⇒ save byte-a-byte.
       // E4 (Spec 30): .excalidraw pega o MESMO trilho — JSON cru no buffer, o
       // ExcalidrawEditor serializa a cena e o pipeline sagrado grava a identidade.
-      if (kind === 'text' || kind === 'excalidraw') {
+      // E4.3 (Spec 31): .canvas idem — virou editável com round-trip (CanvasEditor).
+      if (kind === 'text' || kind === 'excalidraw' || kind === 'canvas') {
         set({
           activeNoteContent: rawContent,
           activeNoteRawFrontmatter: '',
