@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAppStore, FileNode } from '../store/appStore';
-import { Folder, FolderOpen, FileText, FileCode, Image, File, ChevronDown, ChevronRight, FilePlus, FolderPlus, Edit } from 'lucide-react';
+import { Folder, FolderOpen, FileText, FileCode, Image, File, ChevronDown, ChevronRight, FilePlus, FolderPlus, Edit, Shapes } from 'lucide-react';
 import { getFileKind } from '../utils/fileKind';
 import ContextMenu from './ContextMenu';
 import { InputModal, ConfirmModal } from './InputModal';
@@ -98,6 +98,10 @@ export default function FileTree({ node }: FileTreeProps) {
     }
     if (kind === 'pdf') {
       return <FileText className="w-4 h-4 text-[var(--accent-dim)] flex-shrink-0" />;
+    }
+    // E4 (Spec 30): canvas abre no viewer embutido — ícone próprio
+    if (kind === 'canvas') {
+      return <Shapes className="w-4 h-4 text-[var(--tag)] flex-shrink-0" />;
     }
     return <File className="w-4 h-4 text-[var(--text-muted)] flex-shrink-0" />;
   };

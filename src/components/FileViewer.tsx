@@ -1,11 +1,15 @@
 // E5 (Spec 29): roteador do painel de conteúdo — ponto ÚNICO que decide qual editor/viewer
 // monta pra aba ativa, por tipo de arquivo (utils/fileKind). Usado nos dois pontos de
 // montagem do App (painel central e split direito).
+import { lazy, Suspense } from 'react';
 import { useAppStore } from '../store/appStore';
 import { getFileKind } from '../utils/fileKind';
 import MarkdownEditor from './MarkdownEditor';
 import PlainTextEditor from './PlainTextEditor';
 import PdfViewer from './PdfViewer';
+
+// E4 (Spec 30): superfícies de canvas são lazy — o app não paga o peso sem abrir canvas
+const CanvasViewer = lazy(() => import('./CanvasViewer'));
 
 export default function FileViewer() {
   const { activeTab, activeNoteContent, activeContentPath, updateActiveNoteContent } =
@@ -16,6 +20,14 @@ export default function FileViewer() {
 
   if (kind === 'pdf') {
     return <PdfViewer path={activeTab} />;
+  }
+
+  if (kind === 'canvas') {
+    return (
+      <Suspense fallback={null}>
+        <CanvasViewer path={activeTab} />
+      </Suspense>
+    );
   }
 
   if (kind === 'text') {

@@ -1,6 +1,7 @@
 // E5 (Spec 29): roteamento de abertura por extensão. Whitelist FECHADA de propósito —
 // extensão desconhecida/binária nunca vira buffer de texto editável (vai pro app padrão).
-export type FileKind = 'markdown' | 'text' | 'pdf' | 'external';
+// E4 (Spec 30): + kind 'canvas' (.canvas do Obsidian — JSON Canvas, viewer read-only v1).
+export type FileKind = 'markdown' | 'text' | 'pdf' | 'canvas' | 'external';
 
 // Extensão → id de linguagem pro highlight do PlainTextEditor (null = texto puro).
 // O carregamento das linguagens é lazy (src/editor/plainLanguages.ts).
@@ -37,6 +38,7 @@ export function getFileKind(path: string): FileKind {
   const ext = getExtension(path);
   if (ext === 'md') return 'markdown';
   if (ext === 'pdf') return 'pdf';
+  if (ext === 'canvas') return 'canvas';
   if (ext in TEXT_LANGUAGES) return 'text';
   return 'external';
 }

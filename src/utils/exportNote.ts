@@ -56,6 +56,14 @@ function flattenWikiLinks(markdown: string): string {
   });
 }
 
+// E4 (Spec 30): fragmento de HTML sanitizado pros nós text/preview de arquivo do
+// CanvasViewer — MESMO pipeline do export (wiki-links achatados + marked + DOMPurify),
+// sem o shell de documento.
+export function renderMarkdownFragment(markdown: string): string {
+  const body = md.parse(flattenWikiLinks(markdown)) as string;
+  return DOMPurify.sanitize(body, PURIFY);
+}
+
 export function renderNoteToHtml(markdown: string, title: string): string {
   const body = md.parse(flattenWikiLinks(markdown)) as string;
   const clean = DOMPurify.sanitize(body, PURIFY);
