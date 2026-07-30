@@ -70,6 +70,18 @@ export function clearSpellCache(): void {
   verdictCache.clear();
 }
 
+// ── "Ignorar nesta sessão" (L4 da spec: dura até fechar o app; não persiste) ──
+
+const sessionIgnored = new Set<string>();
+
+export function ignoreWordThisSession(word: string): void {
+  sessionIgnored.add(word);
+}
+
+export function clearSessionIgnored(): void {
+  sessionIgnored.clear();
+}
+
 // ── Decorações via StateField + effect (o plugin async publica aqui) ──
 
 const setSpellDecorations = StateEffect.define<DecorationSet>();
@@ -128,7 +140,8 @@ const spellPlugin = ViewPlugin.fromClass(
         return;
       }
 
-      // 1) Coleta os spans verificáveis do viewport (pulando frontmatter e código)
+      // 1) Coleta os spans verificáveis do viewport (pulando frontmatter, código e
+      //    palavras ignoradas nesta sessão)
       const fmEnd = frontmatterEnd(view.state);
       const spans: WordSpan[] = [];
       for (const range of view.visibleRanges) {
@@ -138,7 +151,7 @@ const spellPlugin = ViewPlugin.fromClass(
           if (line.text.length > 0 && !isRangeInCode(view.state, line.from, line.to)) {
             for (const span of checkableWordsInLine(line.text, line.from)) {
               // palavra parcialmente fora do range visível ainda vale — o range é por linha
-              spans.push(span);
+              if (!sessionIgnored.has(span.word)) spans.push(span);
             }
           }
           if (line.to + 1 > range.to) break;
@@ -175,6 +188,154 @@ const spellPlugin = ViewPlugin.fromClass(
   }
 );
 
+// ── Menu de contexto: sugestões + adicionar ao dicionário + ignorar sessão ──
+
+interface SpellHit {
+  word: string;
+  from: number;
+  to: number;
+}
+
+/** Range de erro ortográfico decorado que contém `pos` (null se não houver) */
+function findSpellErrorAt(view: EditorView, pos: number): SpellHit | null {
+  let hit: SpellHit | null = null;
+  view.state.field(spellField).between(pos, pos, (from, to) => {
+    hit = { word: view.state.doc.sliceString(from, to), from, to };
+    return false;
+  });
+  return hit;
+}
+
+let openMenu: HTMLElement | null = null;
+let closeListeners: (() => void) | null = null;
+
+function closeSpellMenu() {
+  openMenu?.remove();
+  openMenu = null;
+  closeListeners?.();
+  closeListeners = null;
+}
+
+function menuButton(label: string, className: string, onClick: () => void): HTMLButtonElement {
+  const btn = document.createElement('button');
+  btn.className = className;
+  btn.textContent = label;
+  // mousedown (não click): fecha ANTES do mousedown-away global disparar
+  btn.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onClick();
+  });
+  return btn;
+}
+
+function openSpellMenu(view: EditorView, hit: SpellHit, x: number, y: number) {
+  closeSpellMenu();
+  const menu = document.createElement('div');
+  menu.className = 'mycellia-spellmenu';
+  menu.style.left = `${x}px`;
+  menu.style.top = `${y}px`;
+
+  const hintEl = document.createElement('div');
+  hintEl.className = 'mycellia-spellmenu-hint';
+  hintEl.textContent = 'Buscando sugestões…';
+  menu.appendChild(hintEl);
+
+  const actions = document.createElement('div');
+  actions.className = 'mycellia-spellmenu-actions';
+  actions.appendChild(
+    menuButton('Adicionar ao dicionário', 'mycellia-spellmenu-add', () => {
+      void invoke('add_personal_word', { word: hit.word })
+        .then(() => {
+          clearSpellCache(); // o veredito da palavra mudou pro processo inteiro
+          view.dispatch({ effects: spellcheckToggled.of() });
+        })
+        .catch(() => {
+          useAppStore.getState().notify('warning', 'Não foi possível salvar no dicionário pessoal.');
+        });
+      closeSpellMenu();
+    })
+  );
+  actions.appendChild(
+    menuButton('Ignorar nesta sessão', 'mycellia-spellmenu-ignore', () => {
+      ignoreWordThisSession(hit.word);
+      view.dispatch({ effects: spellcheckToggled.of() });
+      closeSpellMenu();
+    })
+  );
+  menu.appendChild(actions);
+
+  document.body.appendChild(menu);
+  openMenu = menu;
+
+  // Clampa dentro da viewport (depois de medir)
+  const rect = menu.getBoundingClientRect();
+  if (rect.right > window.innerWidth) menu.style.left = `${Math.max(0, window.innerWidth - rect.width - 8)}px`;
+  if (rect.bottom > window.innerHeight) menu.style.top = `${Math.max(0, y - rect.height)}px`;
+
+  // Fecha em clique fora ou Esc
+  const onAway = (e: MouseEvent) => {
+    if (!menu.contains(e.target as Node)) closeSpellMenu();
+  };
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') closeSpellMenu();
+  };
+  document.addEventListener('mousedown', onAway, true);
+  document.addEventListener('keydown', onKey, true);
+  closeListeners = () => {
+    document.removeEventListener('mousedown', onAway, true);
+    document.removeEventListener('keydown', onKey, true);
+  };
+
+  // Sugestões chegam async (pt ~100-330ms) — o menu já está utilizável enquanto isso
+  void invoke<string[]>('suggest_word', { word: hit.word })
+    .then((suggestions) => {
+      if (openMenu !== menu) return; // menu já fechou/trocou
+      hintEl.remove();
+      if (suggestions.length === 0) {
+        const none = document.createElement('div');
+        none.className = 'mycellia-spellmenu-hint';
+        none.textContent = 'Sem sugestões';
+        menu.prepend(none);
+        return;
+      }
+      // ordem reversa + prepend ⇒ sugestões no topo, na ordem original
+      for (const sug of [...suggestions].reverse()) {
+        menu.prepend(
+          menuButton(sug, 'mycellia-spellmenu-suggestion', () => {
+            view.dispatch({ changes: { from: hit.from, to: hit.to, insert: sug } });
+            view.focus();
+            closeSpellMenu();
+          })
+        );
+      }
+    })
+    .catch(() => {
+      if (openMenu !== menu) return;
+      hintEl.textContent = 'Sem sugestões';
+    });
+}
+
+const spellContextMenu = EditorView.domEventHandlers({
+  contextmenu(event, view) {
+    const target = event.target as HTMLElement;
+    if (!target.closest('.cm-spell-error')) return false;
+    // posAtCoords precisa de layout real (jsdom LANÇA sem getClientRects) — posAtDOM cobre
+    let pos: number | null = null;
+    try {
+      pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+    } catch {
+      // ambiente sem layout (testes): segue pro fallback
+    }
+    if (pos === null) pos = view.posAtDOM(target);
+    const hit = findSpellErrorAt(view, pos);
+    if (!hit) return false;
+    event.preventDefault();
+    openSpellMenu(view, hit, event.clientX, event.clientY);
+    return true;
+  },
+});
+
 export function spellcheckExtension() {
-  return [spellField, spellPlugin];
+  return [spellField, spellPlugin, spellContextMenu];
 }

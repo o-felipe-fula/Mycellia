@@ -722,6 +722,59 @@ textarea:focus-visible,
   text-underline-offset: 3px;
 }
 
+/* E3: menu de contexto do corretor (sugestões + ações) */
+.mycellia-spellmenu {
+  position: fixed;
+  z-index: 60;
+  min-width: 180px;
+  max-width: 260px;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  background: var(--substrate-overlay);
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.mycellia-spellmenu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  font-size: 13px;
+  font-family: var(--font-sans);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background-color 0.1s ease, color 0.1s ease;
+}
+
+.mycellia-spellmenu button:hover {
+  background: var(--substrate-raised);
+  color: var(--text-primary);
+}
+
+.mycellia-spellmenu-suggestion {
+  font-weight: 600;
+  color: var(--text-primary) !important;
+}
+
+.mycellia-spellmenu-hint {
+  padding: 6px 10px;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.mycellia-spellmenu-actions {
+  border-top: 1px solid var(--border-subtle);
+  margin-top: 4px;
+  padding-top: 4px;
+}
+
 /* ── E4: Excalidraw no acento Mycellia ─────────────────────────────────────────
    A lib pinta ferramenta ativa/botões/seleção com a família roxa dela
    (--color-primary* / --color-selection / --color-brand-*). Repontamos pros
