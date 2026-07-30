@@ -3,9 +3,11 @@
 // no body + glass-card. As ações vêm do store; "Nova nota" chega via prop (vive no App).
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import {
   FilePlus, SunMoon, Code2, MoveHorizontal, Network, Search, Hash, Link2,
   RefreshCw, Database, Command as CommandIcon, FileDown, Printer, Shapes, SpellCheck,
+  Settings,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useAppStore } from '../store/appStore';
@@ -52,6 +54,8 @@ function fuzzyScore(query: string, text: string): number | null {
 }
 
 export default function CommandPalette({ onClose, onNewNote }: CommandPaletteProps) {
+  // D0 (Spec 33): comando de Configurações via i18n (demais labels = batch da Fatia 2)
+  const { t } = useTranslation();
   const store = useAppStore();
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
@@ -82,6 +86,7 @@ export default function CommandPalette({ onClose, onNewNote }: CommandPalettePro
           if (path) void store.openTab(path);
         });
       }) },
+      { id: 'settings', label: t('palette.settings'), Icon: Settings, run: run(() => store.setSettingsOpen(true)) },
       { id: 'theme', label: 'Alternar tema (claro/escuro)', Icon: SunMoon, run: run(store.toggleTheme) },
       { id: 'source', label: 'Alternar modo Fonte', hint: 'Ctrl+E', Icon: Code2, run: run(store.toggleEditorSourceMode) },
       { id: 'wide', label: 'Alternar largura da linha (Confortável/Cheia)', Icon: MoveHorizontal, run: run(store.toggleEditorWideMode) },

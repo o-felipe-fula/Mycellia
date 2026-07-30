@@ -30,6 +30,7 @@ import StatusBar from './components/StatusBar';
 import WelcomeScreen from './components/WelcomeScreen';
 import ConflictModal from './components/ConflictModal';
 import GlobalErrorBanner from './components/GlobalErrorBanner';
+import SettingsModal from './components/SettingsModal';
 import { InputModal } from './components/InputModal';
 import CommandPalette from './components/CommandPalette';
 import { validateItemName } from './utils/validateItemName';
@@ -537,6 +538,7 @@ export default function App() {
 
       <ConflictModal />
       <GlobalErrorBanner />
+      <SettingsModal />
       <ToastContainer />
       {showNewNoteModal && (
         <InputModal

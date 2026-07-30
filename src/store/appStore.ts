@@ -4,6 +4,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import YAML from 'yaml';
 import { parseRawNote, serializeRawNote } from '../utils/markdown';
 import { getFileKind } from '../utils/fileKind';
+import { applyLanguage, type LanguageSetting } from '../i18n';
 
 // F3 (Spec 17): os tipos de dados vivem em ./types e a telemetria de cold start em
 // ./telemetry — re-exportados aqui para os 19 consumidores continuarem importando
@@ -154,6 +155,12 @@ export interface AppState {
   spellcheckEnabled: boolean;
   toggleSpellcheck: () => void;
 
+  // D0 (Spec 33): idioma da UI ('auto' detecta do sistema) + modal de Configurações
+  language: LanguageSetting;
+  setLanguage: (language: LanguageSetting) => void;
+  isSettingsOpen: boolean;
+  setSettingsOpen: (open: boolean) => void;
+
   // E1.6 (Spec 27): modo Fonte — corpo da nota cru, sem decorações (sessão)
   editorSourceMode: boolean;
   toggleEditorSourceMode: () => void;
@@ -172,6 +179,7 @@ async function saveConfigHelper(state: {
   editorWideMode: boolean;
   rightPanelWidth: number;
   spellcheckEnabled: boolean;
+  language: LanguageSetting;
 }) {
   try {
     const config: AppConfig = {
@@ -182,6 +190,7 @@ async function saveConfigHelper(state: {
       editor_wide_mode: state.editorWideMode,
       right_panel_width: state.rightPanelWidth,
       spellcheck_enabled: state.spellcheckEnabled,
+      language: state.language,
     };
     await invoke('save_config', { config });
   } catch (e) {
@@ -305,6 +314,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   isNoteDirty: false,
   editorWideMode: false,
   spellcheckEnabled: true,
+  language: 'auto',
+  isSettingsOpen: false,
+  setSettingsOpen: (open: boolean) => set({ isSettingsOpen: open }),
   pendingScrollToHeading: null,
   setPendingScrollToHeading: (heading: string | null) => set({ pendingScrollToHeading: heading }),
 
@@ -346,7 +358,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         editorWideMode: config.editor_wide_mode ?? false,
         rightPanelWidth: config.right_panel_width ?? 300,
         spellcheckEnabled: config.spellcheck_enabled ?? true,
+        language: (config.language as LanguageSetting) ?? 'auto',
       });
+      // D0 (Spec 33): aplica o idioma salvo na instância viva do i18n
+      applyLanguage((config.language as LanguageSetting) ?? 'auto');
 
       // Se havia um vault ativo anterior, carrega-o
       if (config.current_vault) {
@@ -378,6 +393,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         editorWideMode: newState.editorWideMode,
         rightPanelWidth: newState.rightPanelWidth,
         spellcheckEnabled: newState.spellcheckEnabled,
+        language: newState.language,
       });
 
       return { theme: nextTheme };
@@ -402,6 +418,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         editorWideMode: newState.editorWideMode,
         rightPanelWidth: newState.rightPanelWidth,
         spellcheckEnabled: newState.spellcheckEnabled,
+        language: newState.language,
       });
 
       return { theme };
@@ -418,6 +435,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         editorWideMode: newState.editorWideMode,
         rightPanelWidth: newState.rightPanelWidth,
         spellcheckEnabled: newState.spellcheckEnabled,
+        language: newState.language,
       });
       return { sidebarWidth: width };
     }),
@@ -435,6 +453,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         editorWideMode: newState.editorWideMode,
         rightPanelWidth: newState.rightPanelWidth,
         spellcheckEnabled: newState.spellcheckEnabled,
+        language: newState.language,
       });
       return { rightPanelWidth: width };
     }),
@@ -450,8 +469,27 @@ export const useAppStore = create<AppState>((set, get) => ({
         editorWideMode: newState.editorWideMode,
         rightPanelWidth: newState.rightPanelWidth,
         spellcheckEnabled: newState.spellcheckEnabled,
+        language: newState.language,
       });
       return { editorWideMode: newState.editorWideMode };
+    }),
+
+  // D0 (Spec 33): troca de idioma AO VIVO (i18n re-renderiza os consumidores) + persiste
+  setLanguage: (language: LanguageSetting) =>
+    set((state) => {
+      applyLanguage(language);
+      const newState = { ...state, language };
+      saveConfigHelper({
+        currentVault: newState.currentVault,
+        recentVaults: newState.recentVaults,
+        theme: newState.theme,
+        sidebarWidth: newState.sidebarWidth,
+        editorWideMode: newState.editorWideMode,
+        rightPanelWidth: newState.rightPanelWidth,
+        spellcheckEnabled: newState.spellcheckEnabled,
+        language: newState.language,
+      });
+      return { language };
     }),
 
   // E3 (Spec 32): liga/desliga o corretor ortográfico (comando no palette; persiste)
@@ -466,6 +504,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         editorWideMode: newState.editorWideMode,
         rightPanelWidth: newState.rightPanelWidth,
         spellcheckEnabled: newState.spellcheckEnabled,
+        language: newState.language,
       });
       return { spellcheckEnabled: newState.spellcheckEnabled };
     }),
@@ -505,6 +544,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         editorWideMode: newState.editorWideMode,
         rightPanelWidth: newState.rightPanelWidth,
         spellcheckEnabled: newState.spellcheckEnabled,
+        language: newState.language,
       });
 
       return newState;
@@ -561,6 +601,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       editorWideMode: get().editorWideMode,
       rightPanelWidth: get().rightPanelWidth,
       spellcheckEnabled: get().spellcheckEnabled,
+      language: get().language,
     });
     set(newState);
   },

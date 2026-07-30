@@ -103,4 +103,6 @@ export interface AppConfig {
   right_panel_width: number;
   // E3 (Spec 32): corretor ortográfico (default ligado)
   spellcheck_enabled: boolean;
+  // D0 (Spec 33): idioma da UI — 'auto' | 'pt-BR' | 'en'
+  language: string;
 }

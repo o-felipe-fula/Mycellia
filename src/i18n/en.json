@@ -1,0 +1,28 @@
+{
+  "settings": {
+    "title": "Settings",
+    "language": "Language",
+    "languageAuto": "Automatic (system)",
+    "languagePt": "Português",
+    "languageEn": "English",
+    "theme": "Theme",
+    "themeDark": "Dark",
+    "themeLight": "Light",
+    "wideMode": "Line width",
+    "wideModeComfort": "Comfortable",
+    "wideModeFull": "Full",
+    "spellcheck": "Spellcheck",
+    "on": "On",
+    "off": "Off",
+    "close": "Close"
+  },
+  "ribbon": {
+    "files": "File Explorer ({{mod}} + Shift + E)",
+    "search": "Global Search ({{mod}} + Shift + F)",
+    "graph": "View Graph ({{mod}} + G)",
+    "settings": "Settings"
+  },
+  "palette": {
+    "settings": "Settings"
+  }
+}
