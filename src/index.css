@@ -731,5 +731,9 @@ textarea:focus-visible,
   --color-selection: var(--accent);
   --color-brand-hover: var(--accent-bright);
   --color-brand-active: var(--accent-bright);
+  /* Família M3 "container" — fundo/ícone do botão de ferramenta ATIVA (o roxo
+     #403e6a que sobrou na rodada 1 do review vinha daqui) */
+  --color-surface-primary-container: var(--accent-muted);
+  --color-on-primary-container: var(--accent);
 }
 
