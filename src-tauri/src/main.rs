@@ -27,6 +27,7 @@ fn main() {
             commands::fs::delete_item,
             commands::fs::read_file,
             commands::fs::write_file,
+            commands::fs::export_text_file,
             commands::fs::save_pasted_image,
             commands::fs::start_watching,
             commands::fs::stop_watching,

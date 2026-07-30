@@ -20,7 +20,8 @@ export const createLayoutSlice = (set: Set) => ({
   setLeftPanelMode: (mode: 'files' | 'search') => set({ leftPanelMode: mode, isLeftPanelOpen: true }),
   toggleLeftPanel: () => set((state) => ({ isLeftPanelOpen: !state.isLeftPanelOpen })),
   toggleRightPanel: () => set((state) => ({ isRightPanelOpen: !state.isRightPanelOpen })),
-  setRightPanelWidth: (width: number) => set({ rightPanelWidth: width }),
+  // setRightPanelWidth vive no core do appStore (E8): persiste no config.
+  // Aqui só o estado inicial rightPanelWidth: 300.
   setCenterView: (view: 'editor' | 'graph') => set((state) => ensureDifferentViews(view, state.rightView)),
   setRightView: (view: 'backlinks' | 'graph' | 'editor' | 'tags') => set((state) => {
     let nextCenter = state.centerView;

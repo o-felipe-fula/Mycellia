@@ -100,4 +100,5 @@ export interface AppConfig {
   theme: 'light' | 'dark';
   sidebar_width: number;
   editor_wide_mode: boolean;
+  right_panel_width: number;
 }

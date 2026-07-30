@@ -16,6 +16,13 @@ pub struct AppConfig {
     // serde(default) mantém configs antigos carregáveis sem migração.
     #[serde(default)]
     pub editor_wide_mode: bool,
+    // E8: largura do painel direito (backlinks/tags/grafo) — persiste entre sessões
+    #[serde(default = "default_right_panel_width")]
+    pub right_panel_width: u32,
+}
+
+fn default_right_panel_width() -> u32 {
+    300
 }
 
 impl Default for AppConfig {
@@ -26,6 +33,7 @@ impl Default for AppConfig {
             theme: "dark".to_string(), // default theme is Bioluminescent Dark
             sidebar_width: 260,
             editor_wide_mode: false,
+            right_panel_width: 300,
         }
     }
 }
