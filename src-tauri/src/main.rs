@@ -44,6 +44,10 @@ fn main() {
             commands::index_db::get_graph_data,
             commands::graph_positions::load_graph_positions,
             commands::graph_positions::save_graph_positions,
+            commands::spellcheck::spellcheck_warmup,
+            commands::spellcheck::check_words,
+            commands::spellcheck::suggest_word,
+            commands::spellcheck::add_personal_word,
         ])
         .setup(|app| {
             #[cfg(target_os = "macos")]

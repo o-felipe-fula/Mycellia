@@ -24,6 +24,7 @@ import {
 import { slashMenuCompletion, calloutTypeCompletion } from '../editor/slashMenu';
 import { selectionToolbar } from '../editor/selectionToolbar';
 import { hashtagExtension } from '../editor/hashtags';
+import { spellcheckExtension, spellcheckToggled } from '../editor/spellcheck';
 import { invalidateEmbedCache } from '../editor/noteEmbed';
 import PropertiesPanel from './PropertiesPanel';
 
@@ -46,7 +47,7 @@ export default function MarkdownEditor({ content, onChange }: MarkdownEditorProp
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const decorationsCompartment = useRef(new Compartment());
-  const { activeTab, fileTree, renameItem, editorSourceMode, toggleEditorSourceMode, pendingScrollToHeading, setPendingScrollToHeading } = useAppStore();
+  const { activeTab, fileTree, renameItem, editorSourceMode, toggleEditorSourceMode, pendingScrollToHeading, setPendingScrollToHeading, spellcheckEnabled } = useAppStore();
 
   const filename = activeTab ? activeTab.split('\\').pop()?.split('/').pop()?.replace('.md', '') || '' : '';
   const [title, setTitle] = useState(filename);
@@ -154,6 +155,9 @@ export default function MarkdownEditor({ content, onChange }: MarkdownEditorProp
         // Ficam FORA do compartimento: ajudantes de digitação valem nos dois modos.
         autocompletion({ override: [wikiLinkAutocomplete, slashMenuCompletion, calloutTypeCompletion] }),
         selectionToolbar(),
+        // E3 (Spec 32): corretor FORA do compartimento de decorações — erro de digitação
+        // importa nos DOIS modos (Edição e Fonte); o toggle próprio vive no config
+        ...spellcheckExtension(),
         EditorView.lineWrapping,
         EditorView.domEventHandlers({
           // 🔴 Fix do Review Gate (17/07): navegação de link/tag acontece no MOUSEDOWN.
@@ -384,6 +388,11 @@ export default function MarkdownEditor({ content, onChange }: MarkdownEditorProp
       ),
     });
   }, [editorSourceMode]);
+
+  // E3 (Spec 32): toggle do corretor cutuca o plugin (liga → reavalia; desliga → limpa)
+  useEffect(() => {
+    viewRef.current?.dispatch({ effects: spellcheckToggled.of() });
+  }, [spellcheckEnabled]);
 
   return (
     <div className="flex flex-col h-full w-full overflow-hidden">
