@@ -25,6 +25,7 @@ interface Command {
 interface CommandPaletteProps {
   onClose: () => void;
   onNewNote: () => void;
+  onNewCanvas: () => void;
 }
 
 // Fuzzy match: subsequência case-insensitive. Rank: substring exato > prefixo de palavra
@@ -53,7 +54,7 @@ function fuzzyScore(query: string, text: string): number | null {
   return 100 - firstMatch;
 }
 
-export default function CommandPalette({ onClose, onNewNote }: CommandPaletteProps) {
+export default function CommandPalette({ onClose, onNewNote, onNewCanvas }: CommandPaletteProps) {
   // D0 (Spec 33): comando de Configurações via i18n (demais labels = batch da Fatia 2)
   const { t } = useTranslation();
   const store = useAppStore();
@@ -78,14 +79,8 @@ export default function CommandPalette({ onClose, onNewNote }: CommandPalettePro
     };
     const list: Command[] = [
       { id: 'new-note', label: t('palette.newNote'), hint: 'Ctrl+N', Icon: FilePlus, run: run(onNewNote) },
-      // E4 (Spec 30): cria .excalidraw vazio na raiz (create_item dedupe o nome) e abre
-      { id: 'new-canvas', label: t('palette.newCanvas'), Icon: Shapes, run: run(() => {
-        const vault = store.currentVault;
-        if (!vault) return;
-        void store.createItem(vault, 'Canvas sem título.excalidraw', false).then((path) => {
-          if (path) void store.openTab(path);
-        });
-      }) },
+      // D0 review (Felipe): canvas pede NOME via modal (igual à nota) — sem nome fixo em pt
+      { id: 'new-canvas', label: t('palette.newCanvas'), Icon: Shapes, run: run(onNewCanvas) },
       { id: 'settings', label: t('palette.settings'), Icon: Settings, run: run(() => store.setSettingsOpen(true)) },
       { id: 'theme', label: t('palette.theme'), Icon: SunMoon, run: run(store.toggleTheme) },
       { id: 'source', label: t('palette.sourceMode'), hint: 'Ctrl+E', Icon: Code2, run: run(store.toggleEditorSourceMode) },
@@ -109,7 +104,7 @@ export default function CommandPalette({ onClose, onNewNote }: CommandPalettePro
     return list;
     // store é estável entre renders (zustand); onNewNote/onClose idem via App
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onNewNote, onClose, hasNote, noteTitle, t]);
+  }, [onNewNote, onNewCanvas, onClose, hasNote, noteTitle, t]);
 
   const filtered = useMemo(() => {
     const scored = commands

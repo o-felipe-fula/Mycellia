@@ -285,6 +285,9 @@
     "tabBacklinks": "Backlinks",
     "tabGraph": "Grafo",
     "tabTags": "Tags",
-    "tabNote": "Nota"
+    "tabNote": "Nota",
+    "newCanvasTitle": "Novo canvas",
+    "newCanvasPlaceholder": "Nome do canvas",
+    "newCanvasConfirm": "Criar canvas"
   }
 }

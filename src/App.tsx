@@ -14,6 +14,7 @@ import {
   Link2,
   Activity,
   Hash,
+  Shapes,
 } from 'lucide-react';
 import FileTree from './components/FileTree';
 import FileViewer from './components/FileViewer';
@@ -114,11 +115,34 @@ export default function App() {
 
   // UI polish (2026-07-16): modal do DS no lugar do prompt() nativo
   const [showNewNoteModal, setShowNewNoteModal] = React.useState(false);
+  // D0 review (Felipe, 30/07): canvas novo também pede NOME (nada de "Canvas sem título")
+  const [showNewCanvasModal, setShowNewCanvasModal] = React.useState(false);
 
   const handleCreateNewFile = React.useCallback(() => {
     if (!currentVault) return;
     setShowNewNoteModal(true);
   }, [currentVault]);
+
+  const handleCreateNewCanvas = React.useCallback(() => {
+    if (!currentVault) return;
+    setShowNewCanvasModal(true);
+  }, [currentVault]);
+
+  const confirmCreateNewCanvas = React.useCallback(
+    async (name: string) => {
+      if (!currentVault) return;
+      const fullName = name.endsWith('.excalidraw') ? name : `${name}.excalidraw`;
+      try {
+        const path = await createItem(currentVault, fullName, false);
+        setShowNewCanvasModal(false);
+        if (path) await useAppStore.getState().openTab(path);
+      } catch (err) {
+        setShowNewCanvasModal(false);
+        useAppStore.getState().notify('error', t('app.createFileError', { error: String(err) }));
+      }
+    },
+    [currentVault, createItem, t],
+  );
 
   const confirmCreateNewFile = React.useCallback(
     async (name: string) => {
@@ -554,10 +578,22 @@ export default function App() {
           onCancel={() => setShowNewNoteModal(false)}
         />
       )}
+      {showNewCanvasModal && (
+        <InputModal
+          title={t('app.newCanvasTitle')}
+          placeholder={t('app.newCanvasPlaceholder')}
+          confirmLabel={t('app.newCanvasConfirm')}
+          icon={<Shapes className="w-5 h-5 text-[var(--accent)]" />}
+          validate={validateItemName}
+          onConfirm={confirmCreateNewCanvas}
+          onCancel={() => setShowNewCanvasModal(false)}
+        />
+      )}
       {showPalette && (
         <CommandPalette
           onClose={() => setShowPalette(false)}
           onNewNote={handleCreateNewFile}
+          onNewCanvas={handleCreateNewCanvas}
         />
       )}
       {currentVault && <StatusBar />}

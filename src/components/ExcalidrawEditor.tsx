@@ -11,7 +11,7 @@ import { Excalidraw, serializeAsJSON, getSceneVersion } from '@excalidraw/excali
 import '@excalidraw/excalidraw/index.css';
 import { Shapes } from 'lucide-react';
 import { useAppStore } from '../store/appStore';
-import i18n from '../i18n';
+import i18n, { resolveLanguage } from '../i18n';
 
 type ExcalidrawOnChange = Parameters<
   NonNullable<React.ComponentProps<typeof Excalidraw>['onChange']>
@@ -44,7 +44,7 @@ function parseExcalidraw(content: string): ParsedScene | null {
 }
 
 export default function ExcalidrawEditor({ content, onChange }: ExcalidrawEditorProps) {
-  const { activeTab, theme } = useAppStore();
+  const { activeTab, theme, language } = useAppStore();
   const filename = activeTab ? activeTab.split(/[\\/]/).pop() || '' : '';
 
   // Parse UMA vez por montagem (key={activeTab} no FileViewer garante remount por aba);
@@ -106,7 +106,7 @@ export default function ExcalidrawEditor({ content, onChange }: ExcalidrawEditor
           }}
           onChange={handleChange}
           theme={theme === 'light' ? 'light' : 'dark'}
-          langCode="pt-BR"
+          langCode={resolveLanguage(language)}
         />
       </div>
     </div>
