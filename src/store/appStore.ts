@@ -150,6 +150,10 @@ export interface AppState {
   editorWideMode: boolean;
   toggleEditorWideMode: () => void;
 
+  // E3 (Spec 32): corretor ortográfico pt-BR+en (default ligado; persiste no config)
+  spellcheckEnabled: boolean;
+  toggleSpellcheck: () => void;
+
   // E1.6 (Spec 27): modo Fonte — corpo da nota cru, sem decorações (sessão)
   editorSourceMode: boolean;
   toggleEditorSourceMode: () => void;
@@ -167,6 +171,7 @@ async function saveConfigHelper(state: {
   sidebarWidth: number;
   editorWideMode: boolean;
   rightPanelWidth: number;
+  spellcheckEnabled: boolean;
 }) {
   try {
     const config: AppConfig = {
@@ -176,6 +181,7 @@ async function saveConfigHelper(state: {
       sidebar_width: state.sidebarWidth,
       editor_wide_mode: state.editorWideMode,
       right_panel_width: state.rightPanelWidth,
+      spellcheck_enabled: state.spellcheckEnabled,
     };
     await invoke('save_config', { config });
   } catch (e) {
@@ -298,6 +304,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   platform: 'windows',
   isNoteDirty: false,
   editorWideMode: false,
+  spellcheckEnabled: true,
   pendingScrollToHeading: null,
   setPendingScrollToHeading: (heading: string | null) => set({ pendingScrollToHeading: heading }),
 
@@ -338,6 +345,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         sidebarWidth: config.sidebar_width,
         editorWideMode: config.editor_wide_mode ?? false,
         rightPanelWidth: config.right_panel_width ?? 300,
+        spellcheckEnabled: config.spellcheck_enabled ?? true,
       });
 
       // Se havia um vault ativo anterior, carrega-o
@@ -369,6 +377,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         sidebarWidth: newState.sidebarWidth,
         editorWideMode: newState.editorWideMode,
         rightPanelWidth: newState.rightPanelWidth,
+        spellcheckEnabled: newState.spellcheckEnabled,
       });
 
       return { theme: nextTheme };
@@ -392,6 +401,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         sidebarWidth: newState.sidebarWidth,
         editorWideMode: newState.editorWideMode,
         rightPanelWidth: newState.rightPanelWidth,
+        spellcheckEnabled: newState.spellcheckEnabled,
       });
 
       return { theme };
@@ -407,6 +417,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         sidebarWidth: newState.sidebarWidth,
         editorWideMode: newState.editorWideMode,
         rightPanelWidth: newState.rightPanelWidth,
+        spellcheckEnabled: newState.spellcheckEnabled,
       });
       return { sidebarWidth: width };
     }),
@@ -423,6 +434,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         sidebarWidth: newState.sidebarWidth,
         editorWideMode: newState.editorWideMode,
         rightPanelWidth: newState.rightPanelWidth,
+        spellcheckEnabled: newState.spellcheckEnabled,
       });
       return { rightPanelWidth: width };
     }),
@@ -437,8 +449,25 @@ export const useAppStore = create<AppState>((set, get) => ({
         sidebarWidth: newState.sidebarWidth,
         editorWideMode: newState.editorWideMode,
         rightPanelWidth: newState.rightPanelWidth,
+        spellcheckEnabled: newState.spellcheckEnabled,
       });
       return { editorWideMode: newState.editorWideMode };
+    }),
+
+  // E3 (Spec 32): liga/desliga o corretor ortográfico (comando no palette; persiste)
+  toggleSpellcheck: () =>
+    set((state) => {
+      const newState = { ...state, spellcheckEnabled: !state.spellcheckEnabled };
+      saveConfigHelper({
+        currentVault: newState.currentVault,
+        recentVaults: newState.recentVaults,
+        theme: newState.theme,
+        sidebarWidth: newState.sidebarWidth,
+        editorWideMode: newState.editorWideMode,
+        rightPanelWidth: newState.rightPanelWidth,
+        spellcheckEnabled: newState.spellcheckEnabled,
+      });
+      return { spellcheckEnabled: newState.spellcheckEnabled };
     }),
 
   loadVault: async (path: string) => {
@@ -475,6 +504,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         sidebarWidth: newState.sidebarWidth,
         editorWideMode: newState.editorWideMode,
         rightPanelWidth: newState.rightPanelWidth,
+        spellcheckEnabled: newState.spellcheckEnabled,
       });
 
       return newState;
@@ -530,6 +560,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       sidebarWidth: newState.sidebarWidth,
       editorWideMode: get().editorWideMode,
       rightPanelWidth: get().rightPanelWidth,
+      spellcheckEnabled: get().spellcheckEnabled,
     });
     set(newState);
   },

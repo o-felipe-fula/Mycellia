@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   FilePlus, SunMoon, Code2, MoveHorizontal, Network, Search, Hash, Link2,
-  RefreshCw, Database, Command as CommandIcon, FileDown, Printer, Shapes,
+  RefreshCw, Database, Command as CommandIcon, FileDown, Printer, Shapes, SpellCheck,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useAppStore } from '../store/appStore';
@@ -85,6 +85,8 @@ export default function CommandPalette({ onClose, onNewNote }: CommandPalettePro
       { id: 'theme', label: 'Alternar tema (claro/escuro)', Icon: SunMoon, run: run(store.toggleTheme) },
       { id: 'source', label: 'Alternar modo Fonte', hint: 'Ctrl+E', Icon: Code2, run: run(store.toggleEditorSourceMode) },
       { id: 'wide', label: 'Alternar largura da linha (Confortável/Cheia)', Icon: MoveHorizontal, run: run(store.toggleEditorWideMode) },
+      // E3 (Spec 32): corretor ortográfico — o label mostra a AÇÃO (estado atual no hint)
+      { id: 'spellcheck', label: store.spellcheckEnabled ? 'Corretor ortográfico: desligar' : 'Corretor ortográfico: ligar', Icon: SpellCheck, run: run(store.toggleSpellcheck) },
       { id: 'graph', label: 'Abrir o grafo', hint: 'Ctrl+G', Icon: Network, run: run(() => store.setCenterView('graph')) },
       { id: 'search', label: 'Buscar no vault', hint: 'Ctrl+Shift+F', Icon: Search, run: run(() => store.setLeftPanelMode('search')) },
       { id: 'tags', label: 'Painel de tags', Icon: Hash, run: run(() => store.setRightView('tags')) },

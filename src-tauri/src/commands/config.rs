@@ -19,10 +19,18 @@ pub struct AppConfig {
     // E8: largura do painel direito (backlinks/tags/grafo) — persiste entre sessões
     #[serde(default = "default_right_panel_width")]
     pub right_panel_width: u32,
+    // E3 (Spec 32): corretor ortográfico — default LIGADO (serde(default) mantém
+    // configs antigos carregáveis sem migração)
+    #[serde(default = "default_true")]
+    pub spellcheck_enabled: bool,
 }
 
 fn default_right_panel_width() -> u32 {
     300
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for AppConfig {
@@ -34,6 +42,7 @@ impl Default for AppConfig {
             sidebar_width: 260,
             editor_wide_mode: false,
             right_panel_width: 300,
+            spellcheck_enabled: true,
         }
     }
 }

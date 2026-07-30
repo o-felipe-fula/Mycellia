@@ -1831,6 +1831,7 @@ mod tests {
             sidebar_width: 260,
             editor_wide_mode: false,
             right_panel_width: 300,
+            spellcheck_enabled: true,
         };
         crate::commands::config::save_config(handle.clone(), config).unwrap();
 
@@ -1888,6 +1889,7 @@ mod tests {
             sidebar_width: 260,
             editor_wide_mode: false,
             right_panel_width: 300,
+            spellcheck_enabled: true,
         };
         crate::commands::config::save_config(handle.clone(), config).unwrap();
 
@@ -2069,6 +2071,7 @@ mod tests {
             sidebar_width: 260,
             editor_wide_mode: false,
             right_panel_width: 300,
+            spellcheck_enabled: true,
         };
         crate::commands::config::save_config(handle.clone(), config).unwrap();
 

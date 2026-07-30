@@ -25,6 +25,9 @@ notify-debouncer-full = "0.3.1"
 sha2 = "0.10"
 base64 = "0.22.1"
 dunce = "1"
+# E3 (Spec 32): motor Hunspell-like PURO Rust (port do Nuspell, time do Helix) —
+# escolhido no spike da Fatia 0 (zspell crashou carregando o VERO pt-BR)
+spellbook = "0.4"
 
 [dev-dependencies]
 tauri = { version = "2.0.0", features = ["test"] }

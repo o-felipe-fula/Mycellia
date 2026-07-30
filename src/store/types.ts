@@ -101,4 +101,6 @@ export interface AppConfig {
   sidebar_width: number;
   editor_wide_mode: boolean;
   right_panel_width: number;
+  // E3 (Spec 32): corretor ortográfico (default ligado)
+  spellcheck_enabled: boolean;
 }

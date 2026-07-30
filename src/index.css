@@ -715,6 +715,13 @@ textarea:focus-visible,
   font-size: 10px;
 }
 
+/* ── E3: corretor ortográfico — sublinhado ondulado em palavra desconhecida ── */
+.cm-spell-error {
+  text-decoration: underline wavy var(--danger);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
 /* ── E4: Excalidraw no acento Mycellia ─────────────────────────────────────────
    A lib pinta ferramenta ativa/botões/seleção com a família roxa dela
    (--color-primary* / --color-selection / --color-brand-*). Repontamos pros
