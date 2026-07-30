@@ -140,7 +140,8 @@
     "badgeCanvas": "canvas",
     "badgeCanvasInvalid": "canvas · json inválido",
     "badgeExcalidraw": "excalidraw",
-    "badgeExcalidrawInvalid": "excalidraw · json inválido"
+    "badgeExcalidrawInvalid": "excalidraw · json inválido",
+    "clearColor": "Sem cor"
   },
   "spell": {
     "searching": "Buscando sugestões…",
@@ -221,7 +222,11 @@
     "legendMissing": "Nota Inexistente (Link)",
     "loadingEngine": "Carregando Three.js & Engine 3D...",
     "waitingData": "Aguardando dados de rede do grafo...",
-    "recalcTooltip": "Recalcular Layout ({{mod}} + Shift + R)"
+    "recalcTooltip": "Recalcular Layout ({{mod}} + Shift + R)",
+    "errorTitle": "Falha ao Carregar o Grafo",
+    "errorBody": "Ocorreu uma falha inesperada ao renderizar a visualização bioluminescente.",
+    "retry": "Tentar Novamente",
+    "calculating": "Calculando layout do grafo ({{mode}})..."
   },
   "properties": {
     "title": "Propriedades",
@@ -234,7 +239,10 @@
     "typeText": "Texto",
     "typeBoolean": "Booleano",
     "typeList": "Lista/Tags",
-    "add": "Adicionar"
+    "add": "Adicionar",
+    "addProperties": "adicionar propriedades",
+    "header": "PROPRIEDADES",
+    "empty": "Nenhuma propriedade definida nesta nota."
   },
   "search": {
     "noResults": "Nenhum resultado para «{{query}}».",

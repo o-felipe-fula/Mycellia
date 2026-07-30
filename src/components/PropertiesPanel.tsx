@@ -169,7 +169,7 @@ export default function PropertiesPanel() {
             className="inline-flex items-center gap-1 text-[var(--text-muted)] hover:text-[var(--accent)] text-[11px] font-medium py-1 px-2 rounded border border-dashed border-[var(--border-default)] hover:border-[var(--accent)] transition-all cursor-pointer bg-transparent"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>adicionar propriedades</span>
+            <span>{t('properties.addProperties')}</span>
           </button>
         </div>
       );
@@ -210,7 +210,7 @@ export default function PropertiesPanel() {
       >
         <div className="flex items-center gap-2 font-display font-semibold tracking-wide text-xs">
           <Tags className="w-4 h-4 text-[var(--accent)] animate-pulse" />
-          <span>PROPRIEDADES {properties.length > 0 && `(${properties.length})`}</span>
+          <span>{t('properties.header')} {properties.length > 0 && `(${properties.length})`}</span>
         </div>
         <ChevronDown className="w-4 h-4" />
       </div>
@@ -219,7 +219,7 @@ export default function PropertiesPanel() {
         {/* List of existing properties */}
         {properties.length === 0 ? (
           <div className="text-[11px] text-[var(--text-muted)] italic py-1 pl-1">
-            Nenhuma propriedade definida nesta nota.
+            {t('properties.empty')}
           </div>
         ) : (
           <div className="border border-[var(--border-default)] rounded-lg overflow-hidden bg-[var(--substrate-void)] divide-y divide-[var(--border-subtle)]">

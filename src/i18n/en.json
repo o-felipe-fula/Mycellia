@@ -140,7 +140,8 @@
     "badgeCanvas": "canvas",
     "badgeCanvasInvalid": "canvas · invalid json",
     "badgeExcalidraw": "excalidraw",
-    "badgeExcalidrawInvalid": "excalidraw · invalid json"
+    "badgeExcalidrawInvalid": "excalidraw · invalid json",
+    "clearColor": "No color"
   },
   "spell": {
     "searching": "Finding suggestions…",
@@ -221,7 +222,11 @@
     "legendMissing": "Missing Note (Link)",
     "loadingEngine": "Loading Three.js & 3D Engine...",
     "waitingData": "Waiting for graph network data...",
-    "recalcTooltip": "Recalculate Layout ({{mod}} + Shift + R)"
+    "recalcTooltip": "Recalculate Layout ({{mod}} + Shift + R)",
+    "errorTitle": "Failed to Load the Graph",
+    "errorBody": "An unexpected failure occurred while rendering the bioluminescent view.",
+    "retry": "Try Again",
+    "calculating": "Calculating graph layout ({{mode}})..."
   },
   "properties": {
     "title": "Properties",
@@ -234,7 +239,10 @@
     "typeText": "Text",
     "typeBoolean": "Boolean",
     "typeList": "List/Tags",
-    "add": "Add"
+    "add": "Add",
+    "addProperties": "add properties",
+    "header": "PROPERTIES",
+    "empty": "No properties defined in this note."
   },
   "search": {
     "noResults": "No results for «{{query}}».",

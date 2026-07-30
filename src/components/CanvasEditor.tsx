@@ -790,7 +790,7 @@ export default function CanvasEditor({ content, onChange }: CanvasEditorProps) {
             ))}
             <button
               data-testid="canvas-color-clear"
-              title="Sem cor"
+              title={i18n.t('canvas.clearColor')}
               className="w-4 h-4 rounded-full border border-[var(--border-strong)] cursor-pointer text-[10px] leading-none text-[var(--text-muted)]"
               onClick={() => setSelectionColor(null)}
             >

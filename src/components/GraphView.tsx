@@ -711,7 +711,7 @@ const GraphViewInner: React.FC = () => {
           }}
         >
           <RefreshCw className="w-3 h-3 animate-spin" style={{ color: colors.accent }} />
-          <span className="font-medium tracking-wide">Calculando layout do grafo ({graphViewMode === '2d' ? '2D' : '3D'})...</span>
+          <span className="font-medium tracking-wide">{t('graph.calculating', { mode: graphViewMode === '2d' ? '2D' : '3D' })}</span>
         </div>
       )}
 
