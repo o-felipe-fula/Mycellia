@@ -23,7 +23,50 @@
     "settings": "Settings"
   },
   "palette": {
-    "settings": "Settings"
+    "settings": "Settings",
+    "newNote": "New note",
+    "newCanvas": "New canvas (drawing)",
+    "theme": "Toggle theme (light/dark)",
+    "sourceMode": "Toggle Source mode",
+    "wide": "Toggle line width (Comfortable/Full)",
+    "spellcheckOn": "Spellcheck: turn on",
+    "spellcheckOff": "Spellcheck: turn off",
+    "graph": "Open the graph",
+    "search": "Search the vault",
+    "tags": "Tags panel",
+    "backlinks": "Connections panel (backlinks)",
+    "recalcGraph": "Recalculate graph layout",
+    "rebuildIndex": "Rebuild search index",
+    "exportHtml": "Export note as HTML",
+    "print": "Print / Export PDF",
+    "placeholder": "Type a command…",
+    "noResults": "No command found"
+  },
+  "validate": {
+    "emptyName": "The name cannot be empty",
+    "invalidChars": "The name contains invalid characters. Don't use: \\ / : * ? \" < > |"
+  },
+  "store": {
+    "saveConfigError": "Failed to save settings.",
+    "initError": "Failed to initialize the app: {{error}}",
+    "loadVaultError": "Failed to load the vault: {{error}}",
+    "watcherStartWarning": "File watching didn't start; external changes may not appear.",
+    "indexStartError": "Failed to start vault indexing.",
+    "openDefaultError": "Failed to open the file in the default app: {{error}}",
+    "refreshNotesWarning": "Failed to refresh the note list.",
+    "backlinksWarning": "Failed to load backlinks.",
+    "ambiguityWarning": "Ambiguity warning: multiple files colliding case-insensitively for the link [[{{name}}]].",
+    "collisionWarning": "Failed to check wiki-link collisions.",
+    "indexingError": "Vault indexing failed. Search and graph may be incomplete.",
+    "saveNoteError": "Failed to save the note: {{error}}",
+    "retry": "Try again",
+    "vaultRootLost": "The vault folder ({{path}}) was moved, renamed or deleted while the app was open. Reopen the vault to continue — the index was preserved.",
+    "openAsTextError": "Could not open the file as text ({{error}}). Opening in the default app.",
+    "graphLoadError": "Failed to load the graph.",
+    "graphPositionsWarning": "Failed to save graph positions.",
+    "searchError": "Search failed.",
+    "rebuildingIndex": "Rebuilding the index… search will start seeing frontmatter.",
+    "rebuildError": "Failed to rebuild the index: {{error}}"
   },
   "common": {
     "cancel": "Cancel"

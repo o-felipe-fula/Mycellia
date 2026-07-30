@@ -4,7 +4,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import YAML from 'yaml';
 import { parseRawNote, serializeRawNote } from '../utils/markdown';
 import { getFileKind } from '../utils/fileKind';
-import { applyLanguage, type LanguageSetting } from '../i18n';
+import i18n, { applyLanguage, type LanguageSetting } from '../i18n';
 
 // F3 (Spec 17): os tipos de dados vivem em ./types e a telemetria de cold start em
 // ./telemetry — re-exportados aqui para os 19 consumidores continuarem importando
@@ -195,7 +195,7 @@ async function saveConfigHelper(state: {
     await invoke('save_config', { config });
   } catch (e) {
     console.error('Failed to save config:', e);
-    useAppStore.getState().notify('warning', 'Falha ao salvar configurações.');
+    useAppStore.getState().notify('warning', i18n.t('store.saveConfigError'));
   }
 }
 
@@ -216,7 +216,7 @@ function clearSaveError() {
 }
 
 function handleSaveFailure(path: string, content: string, e: unknown) {
-  const msg = `Falha ao salvar a nota: ${e}`;
+  const msg = i18n.t('store.saveNoteError', { error: String(e) });
   console.error(msg, e);
   // Restaura o pendingSave para NÃO perder o texto e permitir o retry (botão / próximo autosave).
   pendingSave = { path, content };
@@ -228,7 +228,7 @@ function handleSaveFailure(path: string, content: string, e: unknown) {
     // Captura {path, content} da falha no closure: o retry salva a nota que FALHOU,
     // mesmo que o usuário tenha trocado de nota (pendingSave global pode ter mudado).
     action: {
-      label: 'Tentar de novo',
+      label: i18n.t('store.retry'),
       run: () => {
         pendingSave = { path, content };
         useAppStore.getState().flushPendingSave();
@@ -256,7 +256,7 @@ function handleVaultRootLost(vaultPath: string) {
   if (vaultRootLostNotifId && state.notifications.some((n) => n.id === vaultRootLostNotifId)) {
     return;
   }
-  const msg = `A pasta do vault (${vaultPath}) foi movida, renomeada ou excluída com o app aberto. Reabra o vault para continuar — o índice foi preservado.`;
+  const msg = i18n.t('store.vaultRootLost', { path: vaultPath });
   console.error(msg);
   vaultRootLostNotifId = state.notify('error', msg, { persistent: true });
 }
@@ -369,7 +369,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     } catch (e) {
       console.error('Failed to initialize app config:', e);
-      get().setGlobalError(`Falha ao inicializar o app: ${e}`);
+      get().setGlobalError(i18n.t('store.initError', { error: String(e) }));
     }
   },
 
@@ -519,7 +519,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       tree = await invoke<FileNode>('load_vault_tree', { vaultPath: path });
     } catch (e) {
       console.error('Failed to load vault tree:', e);
-      get().setGlobalError(`Falha ao carregar o vault: ${e}`);
+      get().setGlobalError(i18n.t('store.loadVaultError', { error: String(e) }));
       return;
     }
     telemetry.treeLoadTime = performance.now() - telemetry.treeLoadStartTime;
@@ -556,14 +556,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ isWatching: true });
     } catch (e) {
       console.error('Failed to start watching vault:', e);
-      get().notify('warning', 'Monitoramento de arquivos não iniciou; mudanças externas podem não aparecer.');
+      get().notify('warning', i18n.t('store.watcherStartWarning'));
       set({ isWatching: false });
     }
 
     // Dispara indexação incremental em background (não bloqueia a UI)
     invoke('start_indexing_command', { vaultPath: path }).catch((err) => {
       console.error('Failed to start background indexing:', err);
-      get().notify('error', 'Falha ao iniciar a indexação do vault.');
+      get().notify('error', i18n.t('store.indexStartError'));
     });
     await get().refreshExistingNotes();
   },
@@ -752,7 +752,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       await invoke('open_in_default_app', { path });
     } catch (err) {
       console.error('Failed to open file in default app:', err);
-      get().notify('error', `Falha ao abrir o arquivo no aplicativo padrão: ${err}`);
+      get().notify('error', i18n.t('store.openDefaultError', { error: String(err) }));
     }
   },
 
@@ -884,7 +884,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (kind === 'text' || kind === 'excalidraw') {
         get().notify(
           'error',
-          `Não foi possível abrir o arquivo como texto (${e}). Abrindo no aplicativo padrão.`,
+          i18n.t('store.openAsTextError', { error: String(e) }),
         );
         await get().closeTab(path);
         void get().openInDefaultApp(path);
@@ -1181,7 +1181,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ existingNotes: existingMap });
     } catch (e) {
       console.error('Failed to refresh existing notes:', e);
-      get().notify('warning', 'Falha ao atualizar a lista de notas.');
+      get().notify('warning', i18n.t('store.refreshNotesWarning'));
     }
   },
 
@@ -1206,7 +1206,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ activeNoteBacklinks: backlinks, activeNoteOutgoingLinks: outgoingLinks, isBacklinksLoading: false });
     } catch (e) {
       console.error('Failed to load backlinks:', e);
-      get().notify('warning', 'Falha ao carregar os backlinks.');
+      get().notify('warning', i18n.t('store.backlinksWarning'));
       set({ activeNoteBacklinks: [], activeNoteOutgoingLinks: [], isBacklinksLoading: false });
     }
   },
@@ -1258,11 +1258,11 @@ export const useAppStore = create<AppState>((set, get) => ({
           });
           if (matches.length > 1) {
             console.warn(`Wiki-link resolution collision warning: Multiple files match '${noteName}' case-insensitively.`);
-            get().setGlobalError(`Aviso de Ambiguidade: Múltiplos arquivos colidindo insensivelmente para o link [[${noteName}]].`);
+            get().setGlobalError(i18n.t('store.ambiguityWarning', { name: noteName }));
           }
         } catch (e) {
           console.error('Failed to check link collisions:', e);
-          get().notify('warning', 'Falha ao verificar colisões de wiki-links.');
+          get().notify('warning', i18n.t('store.collisionWarning'));
         }
       }
       await get().openTab(targetPath);
@@ -1343,7 +1343,7 @@ export async function setupIndexingListener(): Promise<UnlistenFn> {
       }
       telemetry.hasIndexed = true;
       console.error('Indexing error:', payload);
-      useAppStore.getState().notify('error', 'Falha na indexação do vault. Busca e grafo podem ficar incompletos.');
+      useAppStore.getState().notify('error', i18n.t('store.indexingError'));
       useAppStore.setState({ isIndexing: false, indexingProgressText: null });
       checkAndPrintConsolidatedMetrics();
     }

@@ -23,7 +23,50 @@
     "settings": "Configurações"
   },
   "palette": {
-    "settings": "Configurações"
+    "settings": "Configurações",
+    "newNote": "Nova nota",
+    "newCanvas": "Novo canvas (desenho)",
+    "theme": "Alternar tema (claro/escuro)",
+    "sourceMode": "Alternar modo Fonte",
+    "wide": "Alternar largura da linha (Confortável/Cheia)",
+    "spellcheckOn": "Corretor ortográfico: ligar",
+    "spellcheckOff": "Corretor ortográfico: desligar",
+    "graph": "Abrir o grafo",
+    "search": "Buscar no vault",
+    "tags": "Painel de tags",
+    "backlinks": "Painel de conexões (backlinks)",
+    "recalcGraph": "Recalcular layout do grafo",
+    "rebuildIndex": "Reconstruir índice de busca",
+    "exportHtml": "Exportar nota como HTML",
+    "print": "Imprimir / Exportar PDF",
+    "placeholder": "Digite um comando…",
+    "noResults": "Nenhum comando encontrado"
+  },
+  "validate": {
+    "emptyName": "O nome não pode ser vazio",
+    "invalidChars": "O nome contém caracteres inválidos. Não use: \\ / : * ? \" < > |"
+  },
+  "store": {
+    "saveConfigError": "Falha ao salvar configurações.",
+    "initError": "Falha ao inicializar o app: {{error}}",
+    "loadVaultError": "Falha ao carregar o vault: {{error}}",
+    "watcherStartWarning": "Monitoramento de arquivos não iniciou; mudanças externas podem não aparecer.",
+    "indexStartError": "Falha ao iniciar a indexação do vault.",
+    "openDefaultError": "Falha ao abrir o arquivo no aplicativo padrão: {{error}}",
+    "refreshNotesWarning": "Falha ao atualizar a lista de notas.",
+    "backlinksWarning": "Falha ao carregar os backlinks.",
+    "ambiguityWarning": "Aviso de Ambiguidade: Múltiplos arquivos colidindo insensivelmente para o link [[{{name}}]].",
+    "collisionWarning": "Falha ao verificar colisões de wiki-links.",
+    "indexingError": "Falha na indexação do vault. Busca e grafo podem ficar incompletos.",
+    "saveNoteError": "Falha ao salvar a nota: {{error}}",
+    "retry": "Tentar de novo",
+    "vaultRootLost": "A pasta do vault ({{path}}) foi movida, renomeada ou excluída com o app aberto. Reabra o vault para continuar — o índice foi preservado.",
+    "openAsTextError": "Não foi possível abrir o arquivo como texto ({{error}}). Abrindo no aplicativo padrão.",
+    "graphLoadError": "Falha ao carregar o grafo.",
+    "graphPositionsWarning": "Falha ao salvar as posições do grafo.",
+    "searchError": "Falha na busca.",
+    "rebuildingIndex": "Reconstruindo o índice… a busca passará a enxergar o frontmatter.",
+    "rebuildError": "Falha ao reconstruir o índice: {{error}}"
   },
   "common": {
     "cancel": "Cancelar"

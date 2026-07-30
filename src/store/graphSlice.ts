@@ -5,6 +5,7 @@
 // (escrita atômica). Zero relação com o fluxo de save.
 import type { StoreApi } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
+import i18n from '../i18n';
 import type { AppState } from './appStore';
 import type { GraphData, GraphPosition, SearchResult } from './types';
 import { telemetry, checkAndPrintConsolidatedMetrics } from './telemetry';
@@ -223,7 +224,7 @@ export const createGraphSlice = (set: Set, get: Get) => ({
       }
     } catch (e) {
       console.error('Failed to load graph data:', e);
-      get().notify('error', 'Falha ao carregar o grafo.');
+      get().notify('error', i18n.t('store.graphLoadError'));
       telemetry.graphTime = 0;
       telemetry.hasGraphLoaded = true;
       checkAndPrintConsolidatedMetrics();
@@ -243,7 +244,7 @@ export const createGraphSlice = (set: Set, get: Get) => ({
       set({ graphPositions: positions });
     } catch (e) {
       console.error('Failed to save graph positions:', e);
-      get().notify('warning', 'Falha ao salvar as posições do grafo.');
+      get().notify('warning', i18n.t('store.graphPositionsWarning'));
     }
   },
 
@@ -291,7 +292,7 @@ export const createGraphSlice = (set: Set, get: Get) => ({
       }
     } catch (e) {
       console.error('Failed to search notes:', e);
-      get().notify('error', 'Falha na busca.');
+      get().notify('error', i18n.t('store.searchError'));
       if (get().graphSearchQuery === query) {
         set({
           isSearching: false,

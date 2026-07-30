@@ -3,6 +3,7 @@
 // todos os grupos (save, watcher, grafo, vault) via get()/getState().
 import type { StoreApi } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
+import i18n from '../i18n';
 import type { AppState } from './appStore';
 import type { AppNotification, NotificationType, NotifyOptions } from './types';
 
@@ -35,9 +36,9 @@ export const createNotificationsSlice = (set: Set, get: Get) => ({
       // rebuild_index apaga o DB e re-dispara a indexação completa (com o fix do F2), emitindo
       // eventos 'indexing-status' que a StatusBar já reflete ("Indexando…" → "Índice atualizado").
       await invoke('rebuild_index', { vaultPath: vault });
-      get().notify('info', 'Reconstruindo o índice… a busca passará a enxergar o frontmatter.');
+      get().notify('info', i18n.t('store.rebuildingIndex'));
     } catch (e) {
-      get().notify('error', `Falha ao reconstruir o índice: ${e}`);
+      get().notify('error', i18n.t('store.rebuildError', { error: String(e) }));
     }
   },
 });
