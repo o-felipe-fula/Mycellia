@@ -10,6 +10,7 @@ import PdfViewer from './PdfViewer';
 
 // E4 (Spec 30): superfícies de canvas são lazy — o app não paga o peso sem abrir canvas
 const CanvasViewer = lazy(() => import('./CanvasViewer'));
+const ExcalidrawEditor = lazy(() => import('./ExcalidrawEditor'));
 
 export default function FileViewer() {
   const { activeTab, activeNoteContent, activeContentPath, updateActiveNoteContent } =
@@ -26,6 +27,18 @@ export default function FileViewer() {
     return (
       <Suspense fallback={null}>
         <CanvasViewer path={activeTab} />
+      </Suspense>
+    );
+  }
+
+  if (kind === 'excalidraw') {
+    // Mesmo gate do PlainTextEditor (conteúdo REAL da aba carregado) + key por aba:
+    // o parse do arquivo acontece uma vez por abertura — o estado canônico vive dentro
+    // do Excalidraw, e remontar por aba elimina qualquer janela de sync stale.
+    if (activeNoteContent === null || activeContentPath !== activeTab) return null;
+    return (
+      <Suspense fallback={null}>
+        <ExcalidrawEditor key={activeTab} content={activeNoteContent} onChange={updateActiveNoteContent} />
       </Suspense>
     );
   }

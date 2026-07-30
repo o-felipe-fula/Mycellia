@@ -783,7 +783,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       // E5 (Spec 29): não-md NUNCA passa pelo parser de frontmatter — o `---` inicial de
       // um .yaml casaria o regex e o split errado seria regravado no disco no primeiro
       // save. Com rawFrontmatter vazio, serializeRawNote é identidade ⇒ save byte-a-byte.
-      if (kind === 'text') {
+      // E4 (Spec 30): .excalidraw pega o MESMO trilho — JSON cru no buffer, o
+      // ExcalidrawEditor serializa a cena e o pipeline sagrado grava a identidade.
+      if (kind === 'text' || kind === 'excalidraw') {
         set({
           activeNoteContent: rawContent,
           activeNoteRawFrontmatter: '',
@@ -807,8 +809,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       // E5 (Spec 29): pra não-md o fallback de buffer vazio é PROIBIDO — um '' editável
       // salvaria por cima do arquivo (ex.: encoding não-UTF-8). Fecha a aba, avisa e
-      // delega pro app padrão.
-      if (kind === 'text') {
+      // delega pro app padrão. E4: .excalidraw idem.
+      if (kind === 'text' || kind === 'excalidraw') {
         get().notify(
           'error',
           `Não foi possível abrir o arquivo como texto (${e}). Abrindo no aplicativo padrão.`,

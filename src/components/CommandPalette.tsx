@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   FilePlus, SunMoon, Code2, MoveHorizontal, Network, Search, Hash, Link2,
-  RefreshCw, Database, Command as CommandIcon, FileDown, Printer,
+  RefreshCw, Database, Command as CommandIcon, FileDown, Printer, Shapes,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useAppStore } from '../store/appStore';
@@ -74,6 +74,14 @@ export default function CommandPalette({ onClose, onNewNote }: CommandPalettePro
     };
     const list: Command[] = [
       { id: 'new-note', label: 'Nova nota', hint: 'Ctrl+N', Icon: FilePlus, run: run(onNewNote) },
+      // E4 (Spec 30): cria .excalidraw vazio na raiz (create_item dedupe o nome) e abre
+      { id: 'new-canvas', label: 'Novo canvas (desenho)', Icon: Shapes, run: run(() => {
+        const vault = store.currentVault;
+        if (!vault) return;
+        void store.createItem(vault, 'Canvas sem título.excalidraw', false).then((path) => {
+          if (path) void store.openTab(path);
+        });
+      }) },
       { id: 'theme', label: 'Alternar tema (claro/escuro)', Icon: SunMoon, run: run(store.toggleTheme) },
       { id: 'source', label: 'Alternar modo Fonte', hint: 'Ctrl+E', Icon: Code2, run: run(store.toggleEditorSourceMode) },
       { id: 'wide', label: 'Alternar largura da linha (Confortável/Cheia)', Icon: MoveHorizontal, run: run(store.toggleEditorWideMode) },

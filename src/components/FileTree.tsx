@@ -99,8 +99,8 @@ export default function FileTree({ node }: FileTreeProps) {
     if (kind === 'pdf') {
       return <FileText className="w-4 h-4 text-[var(--accent-dim)] flex-shrink-0" />;
     }
-    // E4 (Spec 30): canvas abre no viewer embutido — ícone próprio
-    if (kind === 'canvas') {
+    // E4 (Spec 30): canvas/excalidraw abrem nas superfícies embutidas — ícone próprio
+    if (kind === 'canvas' || kind === 'excalidraw') {
       return <Shapes className="w-4 h-4 text-[var(--tag)] flex-shrink-0" />;
     }
     return <File className="w-4 h-4 text-[var(--text-muted)] flex-shrink-0" />;
