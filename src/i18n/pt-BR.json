@@ -79,6 +79,43 @@
     "renameError": "Erro ao renomear: {{error}}",
     "deleteError": "Erro ao excluir: {{error}}"
   },
+  "backlinks": {
+    "incoming": "Apontam para cá",
+    "incomingEmpty": "Nenhuma nota aponta para esta ainda.",
+    "outgoing": "Esta nota aponta para",
+    "outgoingEmpty": "Esta nota não referencia nenhuma outra.",
+    "unresolvedTooltip": "Nota ainda não criada — clique para criar",
+    "create": "criar"
+  },
+  "tags": {
+    "loading": "Carregando tags…",
+    "empty": "Nenhuma tag no vault ainda. Use <tag>#tag</tag> numa nota ou o campo <mono>tags:</mono> do frontmatter — aninhe com <tag>#projeto/subprojeto</tag>.",
+    "collapse": "Recolher",
+    "expand": "Expandir"
+  },
+  "graph": {
+    "mode2d": "Modo 2D",
+    "mode3d": "Modo 3D",
+    "legendActive": "Nota Ativa (Selecionada)",
+    "legendExisting": "Nota Existente",
+    "legendMissing": "Nota Inexistente (Link)",
+    "loadingEngine": "Carregando Three.js & Engine 3D...",
+    "waitingData": "Aguardando dados de rede do grafo...",
+    "recalcTooltip": "Recalcular Layout ({{mod}} + Shift + R)"
+  },
+  "properties": {
+    "title": "Propriedades",
+    "addTagPlaceholder": "Add tag...",
+    "renameTooltip": "Clique para renomear a propriedade",
+    "deleteTooltip": "Excluir propriedade",
+    "keyPlaceholder": "Propriedade",
+    "valuePlaceholder": "Valor",
+    "listPlaceholder": "Valores (separados por vírgula)",
+    "typeText": "Texto",
+    "typeBoolean": "Booleano",
+    "typeList": "Lista/Tags",
+    "add": "Adicionar"
+  },
   "search": {
     "noResults": "Nenhum resultado para «{{query}}».",
     "results": "Resultados da busca ({{total}})"

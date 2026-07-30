@@ -79,6 +79,43 @@
     "renameError": "Error renaming: {{error}}",
     "deleteError": "Error deleting: {{error}}"
   },
+  "backlinks": {
+    "incoming": "Linking here",
+    "incomingEmpty": "No note links to this one yet.",
+    "outgoing": "This note links to",
+    "outgoingEmpty": "This note doesn't reference any other.",
+    "unresolvedTooltip": "Note not created yet — click to create",
+    "create": "create"
+  },
+  "tags": {
+    "loading": "Loading tags…",
+    "empty": "No tags in the vault yet. Use <tag>#tag</tag> in a note or the <mono>tags:</mono> frontmatter field — nest with <tag>#project/subproject</tag>.",
+    "collapse": "Collapse",
+    "expand": "Expand"
+  },
+  "graph": {
+    "mode2d": "2D Mode",
+    "mode3d": "3D Mode",
+    "legendActive": "Active Note (Selected)",
+    "legendExisting": "Existing Note",
+    "legendMissing": "Missing Note (Link)",
+    "loadingEngine": "Loading Three.js & 3D Engine...",
+    "waitingData": "Waiting for graph network data...",
+    "recalcTooltip": "Recalculate Layout ({{mod}} + Shift + R)"
+  },
+  "properties": {
+    "title": "Properties",
+    "addTagPlaceholder": "Add tag...",
+    "renameTooltip": "Click to rename the property",
+    "deleteTooltip": "Delete property",
+    "keyPlaceholder": "Property",
+    "valuePlaceholder": "Value",
+    "listPlaceholder": "Values (comma-separated)",
+    "typeText": "Text",
+    "typeBoolean": "Boolean",
+    "typeList": "List/Tags",
+    "add": "Add"
+  },
   "search": {
     "noResults": "No results for «{{query}}».",
     "results": "Search results ({{total}})"
