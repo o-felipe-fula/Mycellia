@@ -22,6 +22,8 @@ import {
   removeEdge,
   moveNodes,
   withFields,
+  withoutField,
+  newCanvasId,
   num,
   str,
   type Raw,
@@ -260,6 +262,50 @@ const CORNERS: readonly Corner[] = ['nw', 'ne', 'sw', 'se'];
 const MIN_NODE_SIZE = 40;
 const UNDO_CAP = 100;
 
+// Edição inline em curso: texto de nó text, label de aresta ou label de grupo
+type EditingState =
+  | { kind: 'node-text'; id: string; draft: string }
+  | { kind: 'edge-label'; id: string; draft: string }
+  | { kind: 'group-label'; id: string; draft: string };
+
+// Input flutuante de label (aresta/grupo): Enter commita, Esc cancela, blur commita
+function LabelInput({
+  left,
+  top,
+  width,
+  value,
+  onChange,
+  onCommit,
+  onCancel,
+}: {
+  left: number;
+  top: number;
+  width: number;
+  value: string;
+  onChange: (v: string) => void;
+  onCommit: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <input
+      data-testid="canvas-label-input"
+      autoFocus
+      className="absolute z-10 px-1.5 py-0.5 text-xs font-semibold rounded border border-[var(--accent)] bg-[var(--substrate-raised)] text-[var(--text-primary)] outline-none"
+      style={{ left, top, width }}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onPointerDown={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === 'Escape') onCancel();
+        else if (e.key === 'Enter') onCommit();
+      }}
+      onBlur={onCommit}
+    />
+  );
+}
+
 export default function CanvasEditor({ content, onChange }: CanvasEditorProps) {
   const outerRef = useRef<HTMLDivElement>(null);
   // Parse 1x por montagem (key={activeTab} no FileViewer): o estado canônico da cena vive
@@ -267,6 +313,9 @@ export default function CanvasEditor({ content, onChange }: CanvasEditorProps) {
   const [scene, setScene] = useState<RawScene | null>(() => parseScene(content));
   const [selection, setSelection] = useState<Selection>(null);
   const [view, setView] = useState({ tx: 60, ty: 60, s: 1 });
+  const [editing, setEditing] = useState<EditingState | null>(null);
+  // Aresta em criação (drag de um ponto de conexão): preview + hit-test no drop
+  const [edgeDraft, setEdgeDraft] = useState<{ fromId: string; fromSide: Side; end: { x: number; y: number } } | null>(null);
 
   const sceneRef = useRef(scene);
   sceneRef.current = scene;
@@ -400,6 +449,110 @@ export default function CanvasEditor({ content, onChange }: CanvasEditorProps) {
   const selectedNode = selection?.kind === 'node' ? (byId.get(selection.id) ?? null) : null;
 
   const focusSurface = () => outerRef.current?.focus();
+
+  // Tela → coordenadas de cena (inverte o transform de pan/zoom)
+  const toSceneCoords = (clientX: number, clientY: number) => {
+    const rect = outerRef.current?.getBoundingClientRect();
+    return {
+      x: (clientX - (rect?.left ?? 0) - view.tx) / view.s,
+      y: (clientY - (rect?.top ?? 0) - view.ty) / view.s,
+    };
+  };
+
+  // ── Edição inline: texto de nó text · labels de aresta/grupo · cor da seleção ──
+  const commitTextEdit = () => {
+    const ed = editing;
+    if (!ed || ed.kind !== 'node-text') return;
+    setEditing(null);
+    const prev = sceneRef.current;
+    if (!prev) return;
+    const raw = prev.nodes.find((n) => n.id === ed.id);
+    if (!raw || (str(raw, 'text') ?? '') === ed.draft) return;
+    applyCommit({ ...prev, nodes: prev.nodes.map((n) => (n === raw ? withFields(n, { text: ed.draft }) : n)) }, prev);
+  };
+  const commitLabelEdit = () => {
+    const ed = editing;
+    if (!ed || (ed.kind !== 'edge-label' && ed.kind !== 'group-label')) return;
+    setEditing(null);
+    const prev = sceneRef.current;
+    if (!prev) return;
+    const value = ed.draft.trim();
+    if (ed.kind === 'edge-label') {
+      const raw = prev.edges.find((x) => x.id === ed.id);
+      if (!raw || (str(raw, 'label') ?? '') === value) return;
+      const next = value === '' ? withoutField(raw, 'label') : withFields(raw, { label: value });
+      applyCommit({ ...prev, edges: prev.edges.map((x) => (x === raw ? next : x)) }, prev);
+    } else {
+      const raw = prev.nodes.find((x) => x.id === ed.id);
+      if (!raw || (str(raw, 'label') ?? '') === value) return;
+      const next = value === '' ? withoutField(raw, 'label') : withFields(raw, { label: value });
+      applyCommit({ ...prev, nodes: prev.nodes.map((x) => (x === raw ? next : x)) }, prev);
+    }
+  };
+  const setSelectionColor = (color: string | null) => {
+    const sel = selection;
+    const prev = sceneRef.current;
+    if (!sel || !prev) return;
+    const mut = (raw: Raw) => (color === null ? withoutField(raw, 'color') : withFields(raw, { color }));
+    if (sel.kind === 'node') {
+      const raw = prev.nodes.find((x) => x.id === sel.id);
+      if (!raw || str(raw, 'color') === (color ?? undefined)) return;
+      applyCommit({ ...prev, nodes: prev.nodes.map((x) => (x === raw ? mut(x) : x)) }, prev);
+    } else {
+      const raw = prev.edges.find((x) => x.id === sel.id);
+      if (!raw || str(raw, 'color') === (color ?? undefined)) return;
+      applyCommit({ ...prev, edges: prev.edges.map((x) => (x === raw ? mut(x) : x)) }, prev);
+    }
+  };
+
+  // ── Criar nó text: duplo-clique no VAZIO (semântica Obsidian); já abre em edição ──
+  const createTextNodeAt = (sx: number, sy: number) => {
+    const prev = sceneRef.current;
+    if (!prev) return;
+    const id = newCanvasId();
+    const node: Raw = { id, type: 'text', text: '', x: Math.round(sx - 125), y: Math.round(sy - 30), width: 250, height: 60 };
+    applyCommit({ ...prev, nodes: [...prev.nodes, node] }, prev);
+    setSelection({ kind: 'node', id });
+    setEditing({ kind: 'node-text', id, draft: '' });
+  };
+  const handleSurfaceDoubleClick = (e: React.MouseEvent) => {
+    // Só o vazio: dblclick em nó/aresta tem target próprio e semântica própria
+    if (e.target !== e.currentTarget) return;
+    const p = toSceneCoords(e.clientX, e.clientY);
+    createTextNodeAt(p.x, p.y);
+  };
+
+  // ── Criar aresta: drag de um ponto de conexão do nó selecionado até outro nó ──
+  const handleConnectPointerDown = (e: React.PointerEvent, n: NodeView, side: Side) => {
+    if (e.button > 0) return;
+    e.stopPropagation();
+    focusSurface();
+    setEdgeDraft({ fromId: n.id, fromSide: side, end: anchorPoint(n, side) });
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+  };
+  const handleConnectPointerMove = (e: React.PointerEvent) => {
+    if (!edgeDraft) return;
+    const end = toSceneCoords(e.clientX, e.clientY);
+    setEdgeDraft((d) => (d ? { ...d, end } : d));
+  };
+  const handleConnectPointerUp = (e: React.PointerEvent) => {
+    const d = edgeDraft;
+    setEdgeDraft(null);
+    if (!d) return;
+    const end = toSceneCoords(e.clientX, e.clientY);
+    const target = nodes.find(
+      (n) => n.id !== d.fromId && end.x >= n.x && end.x <= n.x + n.width && end.y >= n.y && end.y <= n.y + n.height
+    );
+    const from = byId.get(d.fromId);
+    if (!target || !from) return;
+    const toSide = pickSides(from, target)[1];
+    const prev = sceneRef.current;
+    if (!prev) return;
+    const id = newCanvasId();
+    const newEdge: Raw = { id, fromNode: d.fromId, fromSide: d.fromSide, toNode: target.id, toSide };
+    applyCommit({ ...prev, edges: [...prev.edges, newEdge] }, prev);
+    setSelection({ kind: 'edge', id });
+  };
 
   // ── Pan (superfície) + deselecionar no clique vazio ──
   const clampScale = (s: number) => Math.min(4, Math.max(0.05, s));
@@ -548,6 +701,9 @@ export default function CanvasEditor({ content, onChange }: CanvasEditorProps) {
 
   // ── Teclado: Delete/Backspace apaga a seleção (cascata de arestas), Ctrl+Z/Y undo/redo ──
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // Edição inline aberta: o teclado pertence ao textarea/input (que dão stopPropagation;
+    // este guard é o cinto extra pra Delete/Ctrl+Z nunca vazarem pra cena)
+    if (editing) return;
     if (e.key === 'Escape') {
       setSelection(null);
       return;
@@ -611,7 +767,36 @@ export default function CanvasEditor({ content, onChange }: CanvasEditorProps) {
         onPointerMove={handleSurfacePointerMove}
         onPointerUp={handleSurfacePointerUp}
         onPointerLeave={handleSurfacePointerUp}
+        onDoubleClick={handleSurfaceDoubleClick}
       >
+        {/* mini-paleta da seleção: 6 cores do Obsidian + limpar */}
+        {selection && (
+          <div
+            data-testid="canvas-color-toolbar"
+            className="absolute top-2 left-2 z-10 flex items-center gap-1.5 rounded-lg border border-[var(--border-default)] bg-[var(--substrate-raised)] px-2 py-1.5 shadow-lg"
+            onPointerDown={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => e.stopPropagation()}
+          >
+            {Object.entries(PALETTE).map(([key, hex]) => (
+              <button
+                key={key}
+                data-testid={`canvas-color-${key}`}
+                title={`Cor ${key}`}
+                className="w-4 h-4 rounded-full border border-[var(--border-strong)] cursor-pointer"
+                style={{ background: hex }}
+                onClick={() => setSelectionColor(key)}
+              />
+            ))}
+            <button
+              data-testid="canvas-color-clear"
+              title="Sem cor"
+              className="w-4 h-4 rounded-full border border-[var(--border-strong)] cursor-pointer text-[10px] leading-none text-[var(--text-muted)]"
+              onClick={() => setSelectionColor(null)}
+            >
+              ✕
+            </button>
+          </div>
+        )}
         <div
           className="absolute top-0 left-0"
           style={{ transform: `translate(${view.tx}px, ${view.ty}px) scale(${view.s})`, transformOrigin: '0 0' }}
@@ -637,6 +822,11 @@ export default function CanvasEditor({ content, onChange }: CanvasEditorProps) {
                 onPointerDown={(e) => handleNodePointerDown(e, n)}
                 onPointerMove={handleNodePointerMove}
                 onPointerUp={handleNodePointerUp}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  setSelection({ kind: 'node', id: n.id });
+                  setEditing({ kind: 'group-label', id: n.id, draft: n.label ?? '' });
+                }}
               >
                 {n.label && (
                   <span
@@ -690,6 +880,11 @@ export default function CanvasEditor({ content, onChange }: CanvasEditorProps) {
                         focusSurface();
                         setSelection({ kind: 'edge', id: e.id });
                       }}
+                      onDoubleClick={(ev) => {
+                        ev.stopPropagation();
+                        setSelection({ kind: 'edge', id: e.id });
+                        setEditing({ kind: 'edge-label', id: e.id, draft: e.label ?? '' });
+                      }}
                     />
                     <path d={geo.arrow} fill={stroke} />
                     {e.label && (
@@ -707,6 +902,25 @@ export default function CanvasEditor({ content, onChange }: CanvasEditorProps) {
                   </g>
                 );
               })}
+              {/* preview da aresta em criação (tracejada, sem write até o drop) */}
+              {edgeDraft &&
+                (() => {
+                  const from = byId.get(edgeDraft.fromId);
+                  if (!from) return null;
+                  const a = anchorPoint(from, edgeDraft.fromSide);
+                  return (
+                    <line
+                      data-testid="canvas-edge-draft"
+                      x1={a.x}
+                      y1={a.y}
+                      x2={edgeDraft.end.x}
+                      y2={edgeDraft.end.y}
+                      stroke="var(--accent)"
+                      strokeWidth={2 / Math.sqrt(view.s)}
+                      strokeDasharray="6 4"
+                    />
+                  );
+                })()}
             </svg>
           )}
 
@@ -734,12 +948,42 @@ export default function CanvasEditor({ content, onChange }: CanvasEditorProps) {
             };
 
             if (n.type === 'text') {
+              const nodeEditing = editing?.kind === 'node-text' && editing.id === n.id ? editing : null;
               return (
-                <div key={n.id} data-testid={`canvas-node-${n.id}`} className={base} style={style} {...dragProps}>
-                  <div
-                    className="canvas-md w-full h-full overflow-hidden px-3 py-2 text-sm leading-relaxed"
-                    dangerouslySetInnerHTML={{ __html: renderMarkdownFragment(n.text ?? '') }}
-                  />
+                <div
+                  key={n.id}
+                  data-testid={`canvas-node-${n.id}`}
+                  className={base}
+                  style={style}
+                  {...dragProps}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    setSelection({ kind: 'node', id: n.id });
+                    setEditing({ kind: 'node-text', id: n.id, draft: n.text ?? '' });
+                  }}
+                >
+                  {nodeEditing ? (
+                    <textarea
+                      data-testid={`canvas-node-editor-${n.id}`}
+                      autoFocus
+                      className="w-full h-full resize-none bg-transparent px-3 py-2 text-sm leading-relaxed text-[var(--text-primary)] outline-none"
+                      value={nodeEditing.draft}
+                      onChange={(ev) => setEditing({ ...nodeEditing, draft: ev.target.value })}
+                      onPointerDown={(ev) => ev.stopPropagation()}
+                      onDoubleClick={(ev) => ev.stopPropagation()}
+                      onKeyDown={(ev) => {
+                        ev.stopPropagation();
+                        if (ev.key === 'Escape') setEditing(null);
+                        else if (ev.key === 'Enter' && ev.ctrlKey) commitTextEdit();
+                      }}
+                      onBlur={commitTextEdit}
+                    />
+                  ) : (
+                    <div
+                      className="canvas-md w-full h-full overflow-hidden px-3 py-2 text-sm leading-relaxed"
+                      dangerouslySetInnerHTML={{ __html: renderMarkdownFragment(n.text ?? '') }}
+                    />
+                  )}
                 </div>
               );
             }
@@ -802,6 +1046,71 @@ export default function CanvasEditor({ content, onChange }: CanvasEditorProps) {
                 />
               );
             })}
+
+          {/* pontos de conexão do nó selecionado: drag até outro nó cria aresta */}
+          {selectedNode &&
+            !editing &&
+            SIDES.map((side) => {
+              const p = anchorPoint(selectedNode, side);
+              const dot = 9 / view.s;
+              return (
+                <div
+                  key={side}
+                  data-testid={`canvas-connect-${side}`}
+                  className="absolute rounded-full bg-[var(--accent)] border border-[var(--accent-contrast)]"
+                  style={{ left: p.x - dot / 2, top: p.y - dot / 2, width: dot, height: dot, cursor: 'crosshair' }}
+                  onPointerDown={(e) => handleConnectPointerDown(e, selectedNode, side)}
+                  onPointerMove={handleConnectPointerMove}
+                  onPointerUp={handleConnectPointerUp}
+                />
+              );
+            })}
+
+          {/* input flutuante de label de ARESTA (dblclick na aresta) */}
+          {editing?.kind === 'edge-label' &&
+            (() => {
+              const ev = edges.find((x) => x.id === editing.id);
+              if (!ev) return null;
+              const a = byId.get(ev.fromNode);
+              const b = byId.get(ev.toNode);
+              if (!a || !b) return null;
+              const [ff, ft] = pickSides(a, b);
+              const geo = edgeGeometry(
+                anchorPoint(a, ev.fromSide ?? ff),
+                ev.fromSide ?? ff,
+                anchorPoint(b, ev.toSide ?? ft),
+                ev.toSide ?? ft
+              );
+              return (
+                <LabelInput
+                  left={geo.mid.x - 60}
+                  top={geo.mid.y - 26}
+                  width={120}
+                  value={editing.draft}
+                  onChange={(v) => setEditing({ ...editing, draft: v })}
+                  onCommit={commitLabelEdit}
+                  onCancel={() => setEditing(null)}
+                />
+              );
+            })()}
+
+          {/* input flutuante de label de GRUPO (dblclick no grupo) */}
+          {editing?.kind === 'group-label' &&
+            (() => {
+              const g = byId.get(editing.id);
+              if (!g) return null;
+              return (
+                <LabelInput
+                  left={g.x + 4}
+                  top={g.y - 30}
+                  width={160}
+                  value={editing.draft}
+                  onChange={(v) => setEditing({ ...editing, draft: v })}
+                  onCommit={commitLabelEdit}
+                  onCancel={() => setEditing(null)}
+                />
+              );
+            })()}
         </div>
       </div>
     </div>

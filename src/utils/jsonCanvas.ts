@@ -87,6 +87,13 @@ export function withFields(o: Raw, fields: Raw): Raw {
   return { ...o, ...fields };
 }
 
+/** Remove um campo conhecido (ex.: limpar cor/label) preservando a ordem do resto */
+export function withoutField(o: Raw, key: string): Raw {
+  const copy = { ...o };
+  delete copy[key];
+  return copy;
+}
+
 /** ID novo no padrão do Obsidian: 16 hex */
 export function newCanvasId(): string {
   const bytes = new Uint8Array(8);

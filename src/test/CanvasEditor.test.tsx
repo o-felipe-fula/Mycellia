@@ -241,6 +241,120 @@ describe('E4.3 — CanvasEditor (.canvas nativo com round-trip)', () => {
     expect(afterRedo.nodes.find((n) => n.id === 'n1')).toMatchObject({ x: 80, y: 40 });
   });
 
+  it('editar texto: dblclick abre textarea com o markdown cru; Ctrl+Enter commita', () => {
+    const onChange = vi.fn();
+    render(<CanvasEditor content={OBSIDIAN_RAW} onChange={onChange} />);
+
+    fireEvent.doubleClick(screen.getByTestId('canvas-node-n1'));
+    const editor = screen.getByTestId('canvas-node-editor-n1') as HTMLTextAreaElement;
+    expect(editor.value).toBe('# A');
+    fireEvent.change(editor, { target: { value: '# A editado' } });
+    fireEvent.keyDown(editor, { key: 'Enter', ctrlKey: true });
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    const scene = parseScene(onChange.mock.calls[0][0] as string)!;
+    const n1 = scene.nodes.find((n) => n.id === 'n1')!;
+    expect(n1.text).toBe('# A editado');
+    expect(n1.styleAttributes).toEqual({ shape: 'oval' }); // desconhecidos intactos
+  });
+
+  it('editar texto: Esc cancela sem write', () => {
+    const onChange = vi.fn();
+    render(<CanvasEditor content={OBSIDIAN_RAW} onChange={onChange} />);
+
+    fireEvent.doubleClick(screen.getByTestId('canvas-node-n1'));
+    const editor = screen.getByTestId('canvas-node-editor-n1');
+    fireEvent.change(editor, { target: { value: 'descartado' } });
+    fireEvent.keyDown(editor, { key: 'Escape' });
+
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('canvas-node-editor-n1')).toBeNull();
+    expect(screen.getByTestId('canvas-node-n1').textContent).toContain('A'); // original de volta
+  });
+
+  it('criar nó text: dblclick no vazio commita nó novo (250×60) já em edição', () => {
+    const onChange = vi.fn();
+    render(<CanvasEditor content={OBSIDIAN_RAW} onChange={onChange} />);
+
+    // zoom-to-fit fallback do jsdom: tx=40, ty=40, s=1 ⇒ tela (500,300) = cena (460,260)
+    fireEvent.doubleClick(screen.getByTestId('canvas-surface'), { clientX: 500, clientY: 300 });
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    const scene = parseScene(onChange.mock.calls[0][0] as string)!;
+    expect(scene.nodes).toHaveLength(3);
+    const novo = scene.nodes.find((n) => n.id !== 'n1' && n.id !== 'n2')!;
+    expect(novo).toMatchObject({ type: 'text', text: '', x: 335, y: 230, width: 250, height: 60 });
+    expect(novo.id).toMatch(/^[0-9a-f]{16}$/); // id padrão Obsidian
+    // já nasce em edição
+    expect(screen.getByTestId(`canvas-node-editor-${novo.id}`)).toBeTruthy();
+  });
+
+  it('cor da seleção: paleta aplica ("5") e limpar REMOVE a chave color', () => {
+    const onChange = vi.fn();
+    render(<CanvasEditor content={OBSIDIAN_RAW} onChange={onChange} />);
+
+    selectNode(screen.getByTestId('canvas-node-n1'));
+    fireEvent.click(screen.getByTestId('canvas-color-5'));
+    fireEvent.click(screen.getByTestId('canvas-color-clear'));
+
+    expect(onChange).toHaveBeenCalledTimes(2);
+    const comCor = parseScene(onChange.mock.calls[0][0] as string)!.nodes.find((n) => n.id === 'n1')!;
+    expect(comCor.color).toBe('5');
+    const semCor = parseScene(onChange.mock.calls[1][0] as string)!.nodes.find((n) => n.id === 'n1')!;
+    expect(Object.keys(semCor)).not.toContain('color');
+  });
+
+  it('label de aresta: dblclick no trilho abre input; Enter grava (desconhecidos intactos)', () => {
+    const onChange = vi.fn();
+    render(<CanvasEditor content={OBSIDIAN_RAW} onChange={onChange} />);
+
+    fireEvent.doubleClick(screen.getByTestId('canvas-edge-hit-e1'));
+    const input = screen.getByTestId('canvas-label-input') as HTMLInputElement;
+    expect(input.value).toBe('');
+    fireEvent.change(input, { target: { value: 'liga em' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    const e1 = parseScene(onChange.mock.calls[0][0] as string)!.edges.find((e) => e.id === 'e1')!;
+    expect(e1.label).toBe('liga em');
+    expect(e1.customMeta).toBe('x');
+  });
+
+  it('label de grupo: dblclick no grupo abre input com o label atual; Enter grava', async () => {
+    mockReadFile({ 'C:\\MyVault\\Subpasta\\Nota Alvo.md': 'corpo' });
+    const onChange = vi.fn();
+    render(<CanvasEditor content={JSON.stringify(FIXTURE)} onChange={onChange} />);
+
+    fireEvent.doubleClick(screen.getByTestId('canvas-node-n4'));
+    const input = screen.getByTestId('canvas-label-input') as HTMLInputElement;
+    expect(input.value).toBe('Grupo A');
+    fireEvent.change(input, { target: { value: 'Grupo B' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    const g = parseScene(onChange.mock.calls[0][0] as string)!.nodes.find((n) => n.id === 'n4')!;
+    expect(g.label).toBe('Grupo B');
+  });
+
+  it('criar aresta: drag do ponto de conexão até outro nó grava fromSide/toSide', () => {
+    const onChange = vi.fn();
+    render(<CanvasEditor content={OBSIDIAN_RAW} onChange={onChange} />);
+
+    selectNode(screen.getByTestId('canvas-node-n1'));
+    // âncora right de n1 = cena (300,100) = tela (340,140); centro de n2 = cena (500,50) = tela (540,90)
+    const dot = screen.getByTestId('canvas-connect-right');
+    fireEvent.pointerDown(dot, { button: 0, clientX: 340, clientY: 140 });
+    fireEvent.pointerMove(dot, { clientX: 540, clientY: 90 });
+    fireEvent.pointerUp(dot, { clientX: 540, clientY: 90 });
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    const scene = parseScene(onChange.mock.calls[0][0] as string)!;
+    expect(scene.edges).toHaveLength(2);
+    const nova = scene.edges.find((e) => e.id !== 'e1')!;
+    expect(nova).toMatchObject({ fromNode: 'n1', fromSide: 'right', toNode: 'n2', toSide: 'left' });
+    expect(nova.id).toMatch(/^[0-9a-f]{16}$/);
+  });
+
   it('navegação virou DUPLO-clique (semântica Obsidian): abre a nota via openTab', async () => {
     mockReadFile({ 'C:\\MyVault\\Subpasta\\Nota Alvo.md': 'corpo' });
     const openTabSpy = vi.fn();
