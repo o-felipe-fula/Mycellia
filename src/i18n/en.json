@@ -24,5 +24,26 @@
   },
   "palette": {
     "settings": "Settings"
+  },
+  "common": {
+    "cancel": "Cancel"
+  },
+  "app": {
+    "newNoteTooltip": "New Note ({{mod}} + N)",
+    "closeVault": "Close Vault",
+    "collapsePanel": "Collapse Panel",
+    "globalSearch": "Global Search",
+    "searchPlaceholder": "Search notes...",
+    "emptyVault": "Your vault is empty.",
+    "createFirstNote": "+ Create first note",
+    "swapFocus": "Swap Focus (Graph / Editor)",
+    "createFileError": "Error creating file: {{error}}",
+    "newNoteTitle": "New note",
+    "newNotePlaceholder": "Note name (e.g. My Note)",
+    "newNoteConfirm": "Create note",
+    "tabBacklinks": "Backlinks",
+    "tabGraph": "Graph",
+    "tabTags": "Tags",
+    "tabNote": "Note"
   }
 }

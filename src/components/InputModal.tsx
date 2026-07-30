@@ -3,6 +3,7 @@
 // overlay blur + glass-card. Enter confirma, Esc cancela, erro inline, autofocus.
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import type { ReactNode } from 'react';
 
 interface InputModalProps {
@@ -29,6 +30,7 @@ export function InputModal({
   onConfirm,
   onCancel,
 }: InputModalProps) {
+  const { t } = useTranslation();
   const [value, setValue] = useState(initialValue);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -102,7 +104,7 @@ export function InputModal({
             onClick={onCancel}
             className="px-4 py-2 text-xs rounded-lg font-medium cursor-pointer transition-all border border-[var(--border-default)] bg-transparent hover:bg-[var(--substrate-raised)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
           >
-            Cancelar
+            {t('common.cancel')}
           </button>
           <button
             onClick={handleConfirm}
@@ -128,6 +130,7 @@ interface ConfirmModalProps {
 }
 
 export function ConfirmModal({ title, message, confirmLabel, danger = false, onConfirm, onCancel }: ConfirmModalProps) {
+  const { t } = useTranslation();
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onCancel();
@@ -152,7 +155,7 @@ export function ConfirmModal({ title, message, confirmLabel, danger = false, onC
             onClick={onCancel}
             className="px-4 py-2 text-xs rounded-lg font-medium cursor-pointer transition-all border border-[var(--border-default)] bg-transparent hover:bg-[var(--substrate-raised)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
           >
-            Cancelar
+            {t('common.cancel')}
           </button>
           <button
             onClick={onConfirm}

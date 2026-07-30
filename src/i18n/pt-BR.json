@@ -24,5 +24,26 @@
   },
   "palette": {
     "settings": "Configurações"
+  },
+  "common": {
+    "cancel": "Cancelar"
+  },
+  "app": {
+    "newNoteTooltip": "Nova Nota ({{mod}} + N)",
+    "closeVault": "Fechar Vault",
+    "collapsePanel": "Recolher Painel",
+    "globalSearch": "Busca Global",
+    "searchPlaceholder": "Buscar notas...",
+    "emptyVault": "Seu vault está vazio.",
+    "createFirstNote": "+ Criar primeira nota",
+    "swapFocus": "Trocar Foco (Grafo / Editor)",
+    "createFileError": "Erro ao criar arquivo: {{error}}",
+    "newNoteTitle": "Nova nota",
+    "newNotePlaceholder": "Nome da nota (ex: Minha Nota)",
+    "newNoteConfirm": "Criar nota",
+    "tabBacklinks": "Backlinks",
+    "tabGraph": "Grafo",
+    "tabTags": "Tags",
+    "tabNote": "Nota"
   }
 }
