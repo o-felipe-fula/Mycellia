@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useAppStore } from '../store/appStore';
+import { useTranslation } from 'react-i18next';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Minus, Square, Copy, X } from 'lucide-react';
 
 export default function TitleBar() {
+  const { t } = useTranslation();
   const { platform, currentVault } = useAppStore();
   const [isMaximized, setIsMaximized] = useState(false);
 
@@ -95,21 +97,21 @@ export default function TitleBar() {
           <button
             onClick={handleMinimize}
             className="flex items-center justify-center w-11 h-full hover:bg-[var(--substrate-raised)] active:bg-[var(--substrate-raised)]/80 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-all cursor-pointer"
-            title="Minimizar"
+            title={t('titleBar.minimize')}
           >
             <Minus className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={handleMaximize}
             className="flex items-center justify-center w-11 h-full hover:bg-[var(--substrate-raised)] active:bg-[var(--substrate-raised)]/80 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-all cursor-pointer"
-            title={isMaximized ? 'Restaurar' : 'Maximizar'}
+            title={isMaximized ? t('titleBar.restore') : t('titleBar.maximize')}
           >
             {isMaximized ? <Copy className="w-3 h-3 rotate-180" /> : <Square className="w-3 h-3" />}
           </button>
           <button
             onClick={handleClose}
             className="flex items-center justify-center w-11 h-full hover:bg-[#E81123] active:bg-[#E81123]/80 hover:text-white text-[var(--text-muted)] transition-all cursor-pointer"
-            title="Fechar"
+            title={t('titleBar.close')}
           >
             <X className="w-3.5 h-3.5" />
           </button>

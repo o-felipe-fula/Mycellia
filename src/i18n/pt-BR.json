@@ -28,6 +28,59 @@
   "common": {
     "cancel": "Cancelar"
   },
+  "welcome": {
+    "greeting": "Bem-vindo ao",
+    "subtitle": "Um editor de conhecimento local-first, offline e com conexões em grafo.",
+    "toggleTheme": "Alternar tema",
+    "openVaultTitle": "Abrir pasta existente",
+    "openVaultDesc": "Abra seu vault do Obsidian ou pasta local com notas Markdown",
+    "createVaultTitle": "Criar novo Vault",
+    "createVaultDesc": "Crie uma nova pasta vazia e comece a tecer sua teia de conhecimento",
+    "recentVaults": "Vaults Recentes",
+    "noRecentVaults": "Nenhum vault aberto recentemente.",
+    "selectVaultDialog": "Selecionar Pasta do Vault",
+    "createVaultDialog": "Escolha o diretório para criar o novo Vault",
+    "openVaultError": "Falha ao abrir o diretório do vault.",
+    "createVaultError": "Falha ao selecionar diretório para criar o vault."
+  },
+  "statusBar": {
+    "fileSingular": "arquivo",
+    "filePlural": "arquivos",
+    "wordSingular": "palavra",
+    "wordPlural": "palavras",
+    "indexing": "Indexando ({{progress}})…",
+    "indexingStarting": "iniciando",
+    "indexUpdated": "Índice atualizado",
+    "rebuildTooltip": "Reconstruir índice — re-lê todas as notas (necessário para a busca enxergar o frontmatter de notas já existentes)",
+    "wideFull": "Cheia",
+    "wideComfort": "Confortável",
+    "wideTooltipFull": "Largura da linha: Cheia — clique para voltar à coluna confortável",
+    "wideTooltipComfort": "Largura da linha: Confortável — clique para usar a tela toda",
+    "wideAria": "Alternar largura da linha do editor",
+    "watchActive": "Watch ativo",
+    "watchInactive": "Watch inativo"
+  },
+  "titleBar": {
+    "minimize": "Minimizar",
+    "maximize": "Maximizar",
+    "restore": "Restaurar",
+    "close": "Fechar"
+  },
+  "errorBanner": {
+    "title": "Erro de Sistema",
+    "errorAria": "Erro",
+    "close": "Fechar Notificação"
+  },
+  "conflict": {
+    "deletedTitle": "Nota excluída no disco",
+    "modifiedTitle": "Conflito de Modificação",
+    "deletedBody": "A nota \"{{name}}\" foi excluída fora do editor, mas você possui alterações locais não salvas.",
+    "modifiedBody": "A nota \"{{name}}\" foi modificada externamente no disco e você também possui alterações locais.",
+    "discardClose": "Descartar e Fechar",
+    "loadDisk": "Carregar versão do disco",
+    "saveRecreate": "Salvar e Recriar",
+    "keepLocal": "Manter minhas alterações"
+  },
   "app": {
     "newNoteTooltip": "Nova Nota ({{mod}} + N)",
     "closeVault": "Fechar Vault",

@@ -1,10 +1,12 @@
 // Welcome screen (F3 — Spec 17): extraída intacta do App.tsx. Puramente apresentacional;
 // abre/cria vault via dialog e lê tema/recentes do store. Zero relação com save/abas.
 import { useAppStore } from '../store/appStore';
+import { useTranslation } from 'react-i18next';
 import { open as openDirectory } from '@tauri-apps/plugin-dialog';
 import { FolderOpen, PlusCircle, Sun, Moon, FileText } from 'lucide-react';
 
 export default function WelcomeScreen() {
+  const { t } = useTranslation();
   const { theme, toggleTheme, recentVaults, loadVault, notify } = useAppStore();
 
   const handleOpenVault = async () => {
@@ -12,14 +14,14 @@ export default function WelcomeScreen() {
       const selected = await openDirectory({
         directory: true,
         multiple: false,
-        title: 'Selecionar Pasta do Vault',
+        title: t('welcome.selectVaultDialog'),
       });
       if (selected && typeof selected === 'string') {
         await loadVault(selected);
       }
     } catch (err) {
       console.error('Failed to open vault:', err);
-      notify('error', 'Falha ao abrir o diretório do vault.');
+      notify('error', t('welcome.openVaultError'));
     }
   };
 
@@ -28,14 +30,14 @@ export default function WelcomeScreen() {
       const selected = await openDirectory({
         directory: true,
         multiple: false,
-        title: 'Escolha o diretório para criar o novo Vault',
+        title: t('welcome.createVaultDialog'),
       });
       if (selected && typeof selected === 'string') {
         await loadVault(selected);
       }
     } catch (err) {
       console.error('Failed to create vault:', err);
-      notify('error', 'Falha ao selecionar diretório para criar o vault.');
+      notify('error', t('welcome.createVaultError'));
     }
   };
 
@@ -50,19 +52,19 @@ export default function WelcomeScreen() {
             <button
               onClick={toggleTheme}
               className="p-2 rounded-lg hover:bg-[var(--substrate-raised)] transition-colors text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
-              aria-label="Alternar tema"
+              aria-label={t('welcome.toggleTheme')}
             >
               {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
             </button>
           </div>
           <h1 className="text-5xl font-display font-black tracking-tight text-[var(--text-primary)]">
-            Bem-vindo ao{' '}
+            {t('welcome.greeting')}{' '}
             <span className="bg-gradient-to-r from-[var(--accent)] to-[var(--tag)] bg-clip-text text-transparent">
               Mycellia
             </span>
           </h1>
           <p className="text-[var(--text-secondary)] text-lg max-w-md mx-auto">
-            Um editor de conhecimento local-first, offline e com conexões em grafo.
+            {t('welcome.subtitle')}
           </p>
         </div>
 
@@ -77,10 +79,10 @@ export default function WelcomeScreen() {
             </div>
             <div>
               <h3 className="font-display font-bold text-base text-[var(--text-primary)]">
-                Abrir pasta existente
+                {t('welcome.openVaultTitle')}
               </h3>
               <p className="text-xs text-[var(--text-muted)] mt-1">
-                Abra seu vault do Obsidian ou pasta local com notas Markdown
+                {t('welcome.openVaultDesc')}
               </p>
             </div>
           </button>
@@ -94,10 +96,10 @@ export default function WelcomeScreen() {
             </div>
             <div>
               <h3 className="font-display font-bold text-base text-[var(--text-primary)]">
-                Criar novo Vault
+                {t('welcome.createVaultTitle')}
               </h3>
               <p className="text-xs text-[var(--text-muted)] mt-1">
-                Crie uma nova pasta vazia e comece a tecer sua teia de conhecimento
+                {t('welcome.createVaultDesc')}
               </p>
             </div>
           </button>
@@ -106,11 +108,11 @@ export default function WelcomeScreen() {
         {/* Recent Vaults */}
         <div className="w-full max-w-md pt-6 border-t border-[var(--border-default)]">
           <h4 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">
-            Vaults Recentes
+            {t('welcome.recentVaults')}
           </h4>
           {recentVaults.length === 0 ? (
             <div className="text-xs text-[var(--text-muted)] italic">
-              Nenhum vault aberto recentemente.
+              {t('welcome.noRecentVaults')}
             </div>
           ) : (
             <div className="space-y-2">

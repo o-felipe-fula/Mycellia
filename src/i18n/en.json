@@ -28,6 +28,59 @@
   "common": {
     "cancel": "Cancel"
   },
+  "welcome": {
+    "greeting": "Welcome to",
+    "subtitle": "A local-first, offline knowledge editor with graph connections.",
+    "toggleTheme": "Toggle theme",
+    "openVaultTitle": "Open existing folder",
+    "openVaultDesc": "Open your Obsidian vault or a local folder with Markdown notes",
+    "createVaultTitle": "Create new Vault",
+    "createVaultDesc": "Create a new empty folder and start weaving your knowledge web",
+    "recentVaults": "Recent Vaults",
+    "noRecentVaults": "No vault opened recently.",
+    "selectVaultDialog": "Select Vault Folder",
+    "createVaultDialog": "Choose the directory for the new Vault",
+    "openVaultError": "Failed to open the vault directory.",
+    "createVaultError": "Failed to select a directory for the new vault."
+  },
+  "statusBar": {
+    "fileSingular": "file",
+    "filePlural": "files",
+    "wordSingular": "word",
+    "wordPlural": "words",
+    "indexing": "Indexing ({{progress}})…",
+    "indexingStarting": "starting",
+    "indexUpdated": "Index up to date",
+    "rebuildTooltip": "Rebuild index — re-reads every note (needed for search to see frontmatter of existing notes)",
+    "wideFull": "Full",
+    "wideComfort": "Comfortable",
+    "wideTooltipFull": "Line width: Full — click to return to the comfortable column",
+    "wideTooltipComfort": "Line width: Comfortable — click to use the whole screen",
+    "wideAria": "Toggle editor line width",
+    "watchActive": "Watch active",
+    "watchInactive": "Watch inactive"
+  },
+  "titleBar": {
+    "minimize": "Minimize",
+    "maximize": "Maximize",
+    "restore": "Restore",
+    "close": "Close"
+  },
+  "errorBanner": {
+    "title": "System Error",
+    "errorAria": "Error",
+    "close": "Dismiss Notification"
+  },
+  "conflict": {
+    "deletedTitle": "Note deleted on disk",
+    "modifiedTitle": "Modification Conflict",
+    "deletedBody": "The note \"{{name}}\" was deleted outside the editor, but you have unsaved local changes.",
+    "modifiedBody": "The note \"{{name}}\" was modified externally on disk and you also have local changes.",
+    "discardClose": "Discard and Close",
+    "loadDisk": "Load disk version",
+    "saveRecreate": "Save and Recreate",
+    "keepLocal": "Keep my changes"
+  },
   "app": {
     "newNoteTooltip": "New Note ({{mod}} + N)",
     "closeVault": "Close Vault",
