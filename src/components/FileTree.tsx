@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAppStore, FileNode } from '../store/appStore';
-import { Folder, FolderOpen, FileText, Image, File, ChevronDown, ChevronRight, FilePlus, FolderPlus, Edit } from 'lucide-react';
+import { Folder, FolderOpen, FileText, FileCode, Image, File, ChevronDown, ChevronRight, FilePlus, FolderPlus, Edit } from 'lucide-react';
+import { getFileKind } from '../utils/fileKind';
 import ContextMenu from './ContextMenu';
 import { InputModal, ConfirmModal } from './InputModal';
 import { validateItemName } from '../utils/validateItemName';
@@ -90,6 +91,14 @@ export default function FileTree({ node }: FileTreeProps) {
     if (isImageFile(item.name)) {
       return <Image className="w-4 h-4 text-[var(--tag)] flex-shrink-0" />;
     }
+    // E5 (Spec 29): texto/código e PDF abrem DENTRO do app — ícones próprios na árvore
+    const kind = getFileKind(item.path);
+    if (kind === 'text') {
+      return <FileCode className="w-4 h-4 text-[var(--text-secondary)] flex-shrink-0" />;
+    }
+    if (kind === 'pdf') {
+      return <FileText className="w-4 h-4 text-[var(--accent-dim)] flex-shrink-0" />;
+    }
     return <File className="w-4 h-4 text-[var(--text-muted)] flex-shrink-0" />;
   };
 
@@ -98,10 +107,12 @@ export default function FileTree({ node }: FileTreeProps) {
     if (item.is_dir) {
       toggleExpand(item.path);
     } else {
-      if (item.name.toLowerCase().endsWith('.md')) {
-        openTab(item.path);
-      } else {
+      // E5 (Spec 29): md/texto/código/pdf abrem em aba; só o resto (whitelist fechada)
+      // vai pro app padrão do SO
+      if (getFileKind(item.path) === 'external') {
         openInDefaultApp(item.path);
+      } else {
+        openTab(item.path);
       }
     }
   };

@@ -16,6 +16,7 @@ vi.mock('@tauri-apps/api/core', () => ({
         theme: 'dark',
         sidebar_width: 260,
         editor_wide_mode: false,
+        right_panel_width: 300,
       });
     }
     return Promise.resolve();

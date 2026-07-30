@@ -51,16 +51,31 @@ describe('usePanelResize (BUG-03)', () => {
     });
   });
 
-  it('splitter direito atualiza ao vivo no drag e mantém a largura no mouseup', () => {
+  it('splitter direito atualiza ao vivo no drag e PERSISTE a largura no mouseup (E8)', async () => {
     const { getByTestId } = render(<Harness />);
 
     fireEvent.mouseDown(getByTestId('right-splitter'), { clientX: 800 });
     fireEvent.mouseMove(document, { clientX: 760 }); // delta -40 → 300 + 40 = 340
 
     expect(useAppStore.getState().rightPanelWidth).toBe(340);
+    // Durante o drag NÃO martela a config
+    expect(vi.mocked(invoke)).not.toHaveBeenCalledWith(
+      'save_config',
+      expect.objectContaining({ config: expect.objectContaining({ right_panel_width: 340 }) }),
+    );
 
     fireEvent.mouseUp(document);
     expect(useAppStore.getState().rightPanelWidth).toBe(340);
+
+    // No mouseup, persiste (antes do E8: nunca persistia entre sessões)
+    await vi.waitFor(() => {
+      expect(vi.mocked(invoke)).toHaveBeenCalledWith(
+        'save_config',
+        expect.objectContaining({
+          config: expect.objectContaining({ right_panel_width: 340 }),
+        }),
+      );
+    });
   });
 
   it('drag não vaza listener: mover depois do mouseup não altera mais a largura', () => {
