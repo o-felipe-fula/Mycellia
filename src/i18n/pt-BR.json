@@ -105,6 +105,7 @@
   },
   "fileTree": {
     "menuNewNote": "Nova Nota (.md)",
+    "menuNewCanvas": "Novo Canvas",
     "menuNewFolder": "Nova Pasta",
     "menuRename": "Renomear",
     "menuDelete": "Excluir",
@@ -118,6 +119,7 @@
     "deleteMessage": "\"{{name}}\" será movido para a lixeira do sistema. Você pode restaurar de lá se mudar de ideia.",
     "deleteConfirm": "Mover para a lixeira",
     "createNoteError": "Erro ao criar nota: {{error}}",
+    "createCanvasError": "Erro ao criar canvas: {{error}}",
     "createFolderError": "Erro ao criar pasta: {{error}}",
     "renameError": "Erro ao renomear: {{error}}",
     "deleteError": "Erro ao excluir: {{error}}"

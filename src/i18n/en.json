@@ -105,6 +105,7 @@
   },
   "fileTree": {
     "menuNewNote": "New Note (.md)",
+    "menuNewCanvas": "New Canvas",
     "menuNewFolder": "New Folder",
     "menuRename": "Rename",
     "menuDelete": "Delete",
@@ -118,6 +119,7 @@
     "deleteMessage": "\"{{name}}\" will be moved to the system trash. You can restore it from there if you change your mind.",
     "deleteConfirm": "Move to trash",
     "createNoteError": "Error creating note: {{error}}",
+    "createCanvasError": "Error creating canvas: {{error}}",
     "createFolderError": "Error creating folder: {{error}}",
     "renameError": "Error renaming: {{error}}",
     "deleteError": "Error deleting: {{error}}"

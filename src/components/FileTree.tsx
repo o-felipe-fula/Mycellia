@@ -10,6 +10,7 @@ import { validateItemName } from '../utils/validateItemName';
 // Modal ativo da árvore (UI polish 2026-07-16: fim dos prompt()/confirm() nativos)
 type TreeModal =
   | { kind: 'create-file'; parentPath: string }
+  | { kind: 'create-canvas'; parentPath: string }
   | { kind: 'create-folder'; parentPath: string }
   | { kind: 'rename'; target: FileNode }
   | { kind: 'delete'; target: FileNode };
@@ -134,11 +135,15 @@ export default function FileTree({ node }: FileTreeProps) {
   };
 
   // Ações do Menu de Contexto: abrem o modal do DS (a execução vive nos callbacks do modal)
-  const parentPathOf = (target: FileNode) =>
-    target.is_dir ? target.path : target.path.substring(0, target.path.lastIndexOf('\\'));
+  // Bug fix (D0 review, Felipe): reusa o getParentPath cross-platform já existente no arquivo
+  // — a versão anterior fazia lastIndexOf('\\') hardcodado e calculava o pai errado no Linux/macOS.
+  const parentPathOf = (target: FileNode) => (target.is_dir ? target.path : getParentPath(target.path));
 
   const handleCreateFile = (target: FileNode) =>
     setModal({ kind: 'create-file', parentPath: parentPathOf(target) });
+
+  const handleCreateCanvas = (target: FileNode) =>
+    setModal({ kind: 'create-canvas', parentPath: parentPathOf(target) });
 
   const handleCreateFolder = (target: FileNode) =>
     setModal({ kind: 'create-folder', parentPath: parentPathOf(target) });
@@ -155,6 +160,20 @@ export default function FileTree({ node }: FileTreeProps) {
     } catch (err) {
       setModal(null);
       notify('error', t('fileTree.createNoteError', { error: String(err) }));
+    }
+  };
+
+  const confirmCreateCanvas = async (parentPath: string, name: string) => {
+    try {
+      const fullName = name.endsWith('.excalidraw') ? name : `${name}.excalidraw`;
+      const path = await createItem(parentPath, fullName, false);
+      // Garante que a pasta pai esteja expandida (igual à criação de pasta)
+      setExpanded((prev) => ({ ...prev, [parentPath]: true }));
+      setModal(null);
+      if (path) await openTab(path);
+    } catch (err) {
+      setModal(null);
+      notify('error', t('fileTree.createCanvasError', { error: String(err) }));
     }
   };
 
@@ -387,6 +406,7 @@ export default function FileTree({ node }: FileTreeProps) {
           y={contextMenu.y}
           onClose={() => setContextMenu(null)}
           onCreateFile={() => handleCreateFile(contextMenu.target)}
+          onCreateCanvas={() => handleCreateCanvas(contextMenu.target)}
           onCreateFolder={() => handleCreateFolder(contextMenu.target)}
           onRename={() => handleRename(contextMenu.target)}
           onDelete={() => handleDelete(contextMenu.target)}
@@ -402,6 +422,17 @@ export default function FileTree({ node }: FileTreeProps) {
           icon={<FilePlus className="w-5 h-5 text-[var(--accent)]" />}
           validate={validateItemName}
           onConfirm={(name) => confirmCreateFile(modal.parentPath, name)}
+          onCancel={() => setModal(null)}
+        />
+      )}
+      {modal?.kind === 'create-canvas' && (
+        <InputModal
+          title={t('app.newCanvasTitle')}
+          placeholder={t('app.newCanvasPlaceholder')}
+          confirmLabel={t('app.newCanvasConfirm')}
+          icon={<Shapes className="w-5 h-5 text-[var(--tag)]" />}
+          validate={validateItemName}
+          onConfirm={(name) => confirmCreateCanvas(modal.parentPath, name)}
           onCancel={() => setModal(null)}
         />
       )}

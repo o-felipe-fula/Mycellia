@@ -8,6 +8,7 @@ describe('ContextMenu', () => {
     y: 100,
     onClose: vi.fn(),
     onCreateFile: vi.fn(),
+    onCreateCanvas: vi.fn(),
     onCreateFolder: vi.fn(),
     onRename: vi.fn(),
     onDelete: vi.fn(),
@@ -17,6 +18,7 @@ describe('ContextMenu', () => {
     render(<ContextMenu {...defaultProps} />);
 
     expect(screen.getByText(/Nova Nota \(.md\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/Novo Canvas/i)).toBeInTheDocument();
     expect(screen.getByText(/Nova Pasta/i)).toBeInTheDocument();
     expect(screen.getByText(/Renomear/i)).toBeInTheDocument();
     expect(screen.getByText(/Excluir/i)).toBeInTheDocument();
@@ -29,6 +31,10 @@ describe('ContextMenu', () => {
     fireEvent.click(screen.getByText(/Nova Nota \(.md\)/i));
     expect(defaultProps.onCreateFile).toHaveBeenCalled();
     expect(defaultProps.onClose).toHaveBeenCalled();
+
+    // Teste Novo Canvas
+    fireEvent.click(screen.getByText(/Novo Canvas/i));
+    expect(defaultProps.onCreateCanvas).toHaveBeenCalled();
 
     // Teste Renomear
     fireEvent.click(screen.getByText(/Renomear/i));
