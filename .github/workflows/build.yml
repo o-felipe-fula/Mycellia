@@ -75,7 +75,7 @@ jobs:
         with:
           tagName: ${{ steps.release_vars.outputs.tag }}
           releaseName: ${{ steps.release_vars.outputs.tag != '' && format('Mycellia {0}', steps.release_vars.outputs.tag) || '' }}
-          releaseBody: 'Build automático. Notas de versão e instruções de instalação: ver CHANGELOG/README no repositório. Pré-release até a primeira release pública (gate: auto-update + instalador com cara de app real).'
+          releaseBody: 'Build automático. Instruções de instalação por sistema: packaging/README.md no repositório. Pré-release até a primeira release pública (gate: auto-update + instalador com cara de app real).'
           releaseDraft: false
           prerelease: true
           includeUpdaterJson: false
