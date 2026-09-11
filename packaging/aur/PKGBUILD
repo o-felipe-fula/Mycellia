@@ -1,0 +1,23 @@
+# Maintainer: Felipe Fulanetti <felipef685@gmail.com>
+pkgname=mycellia-bin
+pkgver=0.6.1
+pkgrel=1
+pkgdesc="Editor de conhecimento .md local-first, compatível com Obsidian (binário pré-compilado)"
+arch=('x86_64')
+url="https://github.com/o-felipe-fula/Mycellia"
+license=('AGPL3')
+depends=('webkit2gtk-4.1' 'gtk3' 'libayatana-appindicator' 'librsvg' 'openssl')
+provides=('mycellia')
+conflicts=('mycellia')
+options=('!strip' '!debug')
+install="${pkgname}.install"
+source=("${url}/releases/download/v${pkgver}/Mycellia_${pkgver}_amd64.deb")
+sha256sums=('SKIP')
+
+package() {
+  # O .deb é um arquivo `ar` com debian-binary + control.tar.gz + data.tar.gz.
+  # O bundler Linux do Tauri v2 sempre gera data.tar.gz (ver tauri-bundler
+  # crates/tauri-bundler/src/bundle/linux/debian.rs, GzEncoder) — não .xz/.zst.
+  bsdtar -xf "${srcdir}/Mycellia_${pkgver}_amd64.deb" -C "${srcdir}"
+  bsdtar -xf "${srcdir}/data.tar.gz" -C "${pkgdir}"
+}
