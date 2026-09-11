@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useEffect, useRef, Suspense } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useAppStore, GraphNode, GraphLink } from '../store/appStore';
 import ForceGraph2D, { ForceGraphMethods as ForceGraph2DMethods, NodeObject, LinkObject } from 'react-force-graph-2d';
 import { RefreshCw, Layers } from 'lucide-react';
@@ -85,6 +86,7 @@ const isPathEqual = (pathA: string | null | undefined, pathB: string | null | un
 };
 
 const GraphViewInner: React.FC = () => {
+  const { t } = useTranslation();
   const {
     graphData,
     graphViewMode,
@@ -649,7 +651,7 @@ const GraphViewInner: React.FC = () => {
           }}
         >
           <Layers className="w-3.5 h-3.5" />
-          <span>{graphViewMode === '2d' ? 'Modo 3D' : 'Modo 2D'}</span>
+          <span>{graphViewMode === '2d' ? t('graph.mode3d') : t('graph.mode2d')}</span>
         </button>
 
         <div className="h-4 w-px" style={{ backgroundColor: hexToRgba(colors.accentDim, 0.2) }} />
@@ -657,7 +659,7 @@ const GraphViewInner: React.FC = () => {
         {/* Recalculate Layout Button */}
         <button
           onClick={() => loadGraphData()}
-          title={`Recalcular Layout (${mod} + Shift + R)`}
+          title={t('graph.recalcTooltip', { mod })}
           className="p-1.5 rounded-md active:scale-95 transition-all duration-150 cursor-pointer"
           style={{
             color: colors.accentDim,
@@ -686,15 +688,15 @@ const GraphViewInner: React.FC = () => {
               boxShadow: theme === 'dark' ? `0 0 4px ${colors.accentBright}` : 'none' 
             }} 
           />
-          <span style={{ color: colors.accentBright }}>Nota Ativa (Selecionada)</span>
+          <span style={{ color: colors.accentBright }}>{t('graph.legendActive')}</span>
         </div>
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full" style={{ backgroundColor: colors.accentDim }} />
-          <span>Nota Existente</span>
+          <span>{t('graph.legendExisting')}</span>
         </div>
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full border border-dashed" style={{ borderColor: colors.accentDim }} />
-          <span>Nota Inexistente (Link)</span>
+          <span>{t('graph.legendMissing')}</span>
         </div>
       </div>
 
@@ -709,7 +711,7 @@ const GraphViewInner: React.FC = () => {
           }}
         >
           <RefreshCw className="w-3 h-3 animate-spin" style={{ color: colors.accent }} />
-          <span className="font-medium tracking-wide">Calculando layout do grafo ({graphViewMode === '2d' ? '2D' : '3D'})...</span>
+          <span className="font-medium tracking-wide">{t('graph.calculating', { mode: graphViewMode === '2d' ? '2D' : '3D' })}</span>
         </div>
       )}
 
@@ -733,7 +735,7 @@ const GraphViewInner: React.FC = () => {
           <Suspense fallback={
             <div className="flex flex-col items-center gap-3 text-xs" style={{ color: colors.accent }}>
               <RefreshCw className="w-5 h-5 animate-spin" />
-              <span>Carregando Three.js & Engine 3D...</span>
+              <span>{t('graph.loadingEngine')}</span>
             </div>
           }>
             <ForceGraph3D
@@ -761,7 +763,7 @@ const GraphViewInner: React.FC = () => {
       ) : (
         <div className="text-xs flex items-center gap-2" style={{ color: colors.accentDim }}>
           <RefreshCw className="w-4 h-4 animate-spin" />
-          <span>Aguardando dados de rede do grafo...</span>
+          <span>{t('graph.waitingData')}</span>
         </div>
       )}
     </div>

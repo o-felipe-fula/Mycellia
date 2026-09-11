@@ -2,12 +2,14 @@
 // dispara a busca `#tag` — que reusa TODO o pipeline (resultados no painel esquerdo +
 // grafo acendendo os matches). Dados direto do índice via get_all_tags (estado local).
 import { useCallback, useEffect, useState } from 'react';
+import { useTranslation, Trans } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
 import { ChevronDown, ChevronRight, Hash, RefreshCw } from 'lucide-react';
 import { useAppStore, TagCount } from '../store/appStore';
 import { buildTagTree, TagTreeNode } from '../utils/tagTree';
 
 export default function TagsPanel() {
+  const { t } = useTranslation();
   const { isIndexing, setLeftPanelMode, setGraphSearchQuery } = useAppStore();
   const [tags, setTags] = useState<TagCount[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -52,7 +54,7 @@ export default function TagsPanel() {
                 e.stopPropagation();
                 setExpanded((prev) => ({ ...prev, [node.fullPath]: !isOpen }));
               }}
-              aria-label={isOpen ? 'Recolher' : 'Expandir'}
+              aria-label={isOpen ? t('tags.collapse') : t('tags.expand')}
               className="flex-shrink-0 text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
             >
               {isOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
@@ -92,13 +94,17 @@ export default function TagsPanel() {
       {isLoading ? (
         <div className="flex items-center gap-2 text-xs text-[var(--text-muted)] p-2">
           <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-          <span>Carregando tags…</span>
+          <span>{t('tags.loading')}</span>
         </div>
       ) : tree.length === 0 ? (
         <div className="text-xs text-[var(--text-muted)] p-3 leading-relaxed">
-          Nenhuma tag no vault ainda. Use <span className="font-mono text-[var(--tag)]">#tag</span> numa
-          nota ou o campo <span className="font-mono">tags:</span> do frontmatter — aninhe com{' '}
-          <span className="font-mono text-[var(--tag)]">#projeto/subprojeto</span>.
+          <Trans
+            i18nKey="tags.empty"
+            components={{
+              tag: <span className="font-mono text-[var(--tag)]" />,
+              mono: <span className="font-mono" />,
+            }}
+          />
         </div>
       ) : (
         tree.map((node) => renderNode(node, 0))

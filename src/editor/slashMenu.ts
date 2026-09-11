@@ -5,6 +5,7 @@
 import { snippet } from '@codemirror/autocomplete';
 import type { Completion, CompletionContext, CompletionResult } from '@codemirror/autocomplete';
 import type { EditorView } from '@codemirror/view';
+import i18n from '../i18n';
 
 // ---------------------------------------------------------------------------
 // Slash menu — blocos
@@ -21,28 +22,45 @@ const slashItem = (label: string, detail: string, template: string, boost = 0): 
   },
 });
 
-const SLASH_ITEMS: Completion[] = [
-  slashItem('Callout — Dica', 'tip', '> [!tip] ${Título}\n> ${Conteúdo}', 3),
-  slashItem('Callout — Nota', 'note', '> [!note] ${Título}\n> ${Conteúdo}', 2),
-  slashItem('Callout — Info', 'info', '> [!info] ${Título}\n> ${Conteúdo}'),
-  slashItem('Callout — Atenção', 'warning', '> [!warning] ${Título}\n> ${Conteúdo}', 1),
-  slashItem('Callout — Perigo', 'danger', '> [!danger] ${Título}\n> ${Conteúdo}'),
-  slashItem('Callout — Sucesso', 'success', '> [!success] ${Título}\n> ${Conteúdo}'),
-  slashItem('Callout — Pergunta', 'question', '> [!question] ${Título}\n> ${Conteúdo}'),
-  slashItem('Callout — Exemplo', 'example', '> [!example] ${Título}\n> ${Conteúdo}'),
-  slashItem('Callout — Citação', 'quote', '> [!quote] ${Título}\n> ${Conteúdo}'),
-  slashItem('Título 1', '#', '# ${Título}'),
-  slashItem('Título 2', '##', '## ${Título}'),
-  slashItem('Título 3', '###', '### ${Título}'),
-  slashItem('Lista', '-', '- ${item}'),
-  slashItem('Lista numerada', '1.', '1. ${item}'),
-  slashItem('Checklist', '- [ ]', '- [ ] ${tarefa}', 2),
-  slashItem('Tabela', 'md', '| ${Coluna 1} | Coluna 2 |\n| --- | --- |\n| ${} |  |', 1),
-  slashItem('Bloco de código', '```', '```${linguagem}\n${}\n```'),
-  slashItem('Diagrama (Mermaid)', 'mermaid', '```mermaid\nflowchart TD\n  ${A} --> ${B}\n```', 1),
-  slashItem('Citação', '>', '> ${}'),
-  slashItem('Divisor', '---', '---\n${}'),
+// D0 (Spec 33): a lista nasce POR INVOCAÇÃO — labels e placeholders dos snippets
+// seguem o idioma vivo (recriar o array a cada `/` custa nada e evita label stale)
+const CALLOUT_SLASH_ORDER: Array<[string, number]> = [
+  ['tip', 3],
+  ['note', 2],
+  ['info', 0],
+  ['warning', 1],
+  ['danger', 0],
+  ['success', 0],
+  ['question', 0],
+  ['example', 0],
+  ['quote', 0],
 ];
+
+function slashItems(): Completion[] {
+  const t = (key: string, opts?: Record<string, string>) => i18n.t(key, opts);
+  const ph = (key: string) => '${' + t(key) + '}';
+  return [
+    ...CALLOUT_SLASH_ORDER.map(([key, boost]) =>
+      slashItem(
+        t('slash.calloutLabel', { name: t(`slash.calloutName.${key}`) }),
+        key,
+        `> [!${key}] ` + ph('slash.phTitle') + '\n> ' + ph('slash.phContent'),
+        boost
+      )
+    ),
+    slashItem(t('slash.h1'), '#', '# ' + ph('slash.phTitle')),
+    slashItem(t('slash.h2'), '##', '## ' + ph('slash.phTitle')),
+    slashItem(t('slash.h3'), '###', '### ' + ph('slash.phTitle')),
+    slashItem(t('slash.list'), '-', '- ' + ph('slash.phItem')),
+    slashItem(t('slash.numberedList'), '1.', '1. ' + ph('slash.phItem')),
+    slashItem(t('slash.checklist'), '- [ ]', '- [ ] ' + ph('slash.phTask'), 2),
+    slashItem(t('slash.table'), 'md', '| ' + ph('slash.phCol1') + ' | ' + t('slash.phCol2') + ' |\n| --- | --- |\n| ${} |  |', 1),
+    slashItem(t('slash.codeBlock'), '```', '```' + ph('slash.phLanguage') + '\n${}\n```'),
+    slashItem(t('slash.mermaid'), 'mermaid', '```mermaid\nflowchart TD\n  ${A} --> ${B}\n```', 1),
+    slashItem(t('slash.quote'), '>', '> ${}'),
+    slashItem(t('slash.divider'), '---', '---\n${}'),
+  ];
+}
 
 export function slashMenuCompletion(context: CompletionContext): CompletionResult | null {
   const line = context.state.doc.lineAt(context.pos);
@@ -54,7 +72,7 @@ export function slashMenuCompletion(context: CompletionContext): CompletionResul
   const slashPos = line.from + match[1].length;
   return {
     from: slashPos + 1,
-    options: SLASH_ITEMS,
+    options: slashItems(),
     validFor: /^[\wÀ-ɏ-]*$/,
   };
 }
@@ -63,21 +81,11 @@ export function slashMenuCompletion(context: CompletionContext): CompletionResul
 // Autocomplete de tipo de callout (`> [!`)
 // ---------------------------------------------------------------------------
 
-const CALLOUT_TYPES: Array<{ key: string; pt: string }> = [
-  { key: 'note', pt: 'Nota' },
-  { key: 'tip', pt: 'Dica' },
-  { key: 'info', pt: 'Info' },
-  { key: 'warning', pt: 'Atenção' },
-  { key: 'danger', pt: 'Perigo' },
-  { key: 'success', pt: 'Sucesso' },
-  { key: 'question', pt: 'Pergunta' },
-  { key: 'example', pt: 'Exemplo' },
-  { key: 'quote', pt: 'Citação' },
-  { key: 'abstract', pt: 'Resumo' },
-  { key: 'todo', pt: 'A fazer' },
-  { key: 'failure', pt: 'Falha' },
-  { key: 'bug', pt: 'Bug' },
-];
+// D0 (Spec 33): o nome exibido vem do i18n (slash.calloutName.*) por invocação
+const CALLOUT_TYPE_KEYS = [
+  'note', 'tip', 'info', 'warning', 'danger', 'success', 'question',
+  'example', 'quote', 'abstract', 'todo', 'failure', 'bug',
+] as const;
 
 export function calloutTypeCompletion(context: CompletionContext): CompletionResult | null {
   const line = context.state.doc.lineAt(context.pos);
@@ -87,10 +95,10 @@ export function calloutTypeCompletion(context: CompletionContext): CompletionRes
 
   return {
     from: context.pos - match[1].length,
-    options: CALLOUT_TYPES.map((t) => ({
-      label: t.key,
-      detail: t.pt,
-      apply: `${t.key}] `,
+    options: CALLOUT_TYPE_KEYS.map((key) => ({
+      label: key,
+      detail: i18n.t(`slash.calloutName.${key}`),
+      apply: `${key}] `,
     })),
     validFor: /^[a-zA-Z]*$/,
   };

@@ -124,6 +124,84 @@ describe('FileTree + modais (fluxo real, sem prompt nativo)', () => {
     });
   });
 
+  it('menu de contexto → "Novo Canvas" abre o modal do DS, cria .excalidraw no pai certo e abre a aba', async () => {
+    const createSpy = vi.fn(async () => 'C:\\Vault\\Pasta\\Novo.excalidraw');
+    const openTabSpy = vi.fn(async () => {});
+    useAppStore.setState({ createItem: createSpy, openTab: openTabSpy });
+
+    render(<FileTree node={mockTree} />);
+
+    // Botão direito na pasta → menu → Novo Canvas
+    fireEvent.contextMenu(screen.getByText('Pasta'));
+    fireEvent.click(screen.getByText('Novo Canvas'));
+
+    // Modal do DS (mesmo fluxo da command palette)
+    const input = await screen.findByRole('textbox');
+    fireEvent.change(input, { target: { value: 'Novo' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    await vi.waitFor(() => {
+      expect(createSpy).toHaveBeenCalledWith('C:\\Vault\\Pasta', 'Novo.excalidraw', false);
+    });
+    await vi.waitFor(() => {
+      expect(openTabSpy).toHaveBeenCalledWith('C:\\Vault\\Pasta\\Novo.excalidraw');
+    });
+    await vi.waitFor(() => {
+      expect(screen.queryByRole('textbox')).toBeNull();
+    });
+  });
+
+  it('"Novo Canvas" num ARQUIVO usa a pasta-mãe (Windows "\\\\") — mesma regra da Nova Nota', async () => {
+    const createSpy = vi.fn(async () => 'C:\\Vault\\Novo.excalidraw');
+    useAppStore.setState({ createItem: createSpy, openTab: vi.fn(async () => {}) });
+
+    render(<FileTree node={mockTree} />);
+
+    fireEvent.contextMenu(screen.getByText('Nota A.md'));
+    fireEvent.click(screen.getByText('Novo Canvas'));
+
+    const input = await screen.findByRole('textbox');
+    fireEvent.change(input, { target: { value: 'Novo' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    await vi.waitFor(() => {
+      expect(createSpy).toHaveBeenCalledWith('C:\\Vault', 'Novo.excalidraw', false);
+    });
+  });
+
+  it('"Novo Canvas" num ARQUIVO usa a pasta-mãe com separador Linux/macOS ("/") — bug do lastIndexOf hardcodado corrigido', async () => {
+    const linuxTree: FileNode = {
+      name: 'Vault',
+      path: '/home/felipe/Vault',
+      is_dir: true,
+      children: [
+        {
+          name: 'Pasta',
+          path: '/home/felipe/Vault/Pasta',
+          is_dir: true,
+          children: [{ name: 'Nota B.md', path: '/home/felipe/Vault/Pasta/Nota B.md', is_dir: false }],
+        },
+      ],
+    };
+    useAppStore.setState({ platform: 'linux' });
+    const createSpy = vi.fn(async () => '/home/felipe/Vault/Pasta/Novo.excalidraw');
+    useAppStore.setState({ createItem: createSpy, openTab: vi.fn(async () => {}) });
+
+    render(<FileTree node={linuxTree} />);
+    fireEvent.click(screen.getByText('Pasta')); // expande pra achar Nota B.md
+
+    fireEvent.contextMenu(screen.getByText('Nota B.md'));
+    fireEvent.click(screen.getByText('Novo Canvas'));
+
+    const input = await screen.findByRole('textbox');
+    fireEvent.change(input, { target: { value: 'Novo' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    await vi.waitFor(() => {
+      expect(createSpy).toHaveBeenCalledWith('/home/felipe/Vault/Pasta', 'Novo.excalidraw', false);
+    });
+  });
+
   it('excluir passa pelo ConfirmModal (nada de confirm() nativo)', async () => {
     const deleteSpy = vi.fn(async () => {});
     useAppStore.setState({ deleteItem: deleteSpy });

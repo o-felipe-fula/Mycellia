@@ -3,9 +3,11 @@
 // no body + glass-card. As ações vêm do store; "Nova nota" chega via prop (vive no App).
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import {
   FilePlus, SunMoon, Code2, MoveHorizontal, Network, Search, Hash, Link2,
   RefreshCw, Database, Command as CommandIcon, FileDown, Printer, Shapes, SpellCheck,
+  Settings,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useAppStore } from '../store/appStore';
@@ -23,6 +25,7 @@ interface Command {
 interface CommandPaletteProps {
   onClose: () => void;
   onNewNote: () => void;
+  onNewCanvas: () => void;
 }
 
 // Fuzzy match: subsequência case-insensitive. Rank: substring exato > prefixo de palavra
@@ -51,7 +54,9 @@ function fuzzyScore(query: string, text: string): number | null {
   return 100 - firstMatch;
 }
 
-export default function CommandPalette({ onClose, onNewNote }: CommandPaletteProps) {
+export default function CommandPalette({ onClose, onNewNote, onNewCanvas }: CommandPaletteProps) {
+  // D0 (Spec 33): comando de Configurações via i18n (demais labels = batch da Fatia 2)
+  const { t } = useTranslation();
   const store = useAppStore();
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
@@ -73,38 +78,33 @@ export default function CommandPalette({ onClose, onNewNote }: CommandPalettePro
       onClose();
     };
     const list: Command[] = [
-      { id: 'new-note', label: 'Nova nota', hint: 'Ctrl+N', Icon: FilePlus, run: run(onNewNote) },
-      // E4 (Spec 30): cria .excalidraw vazio na raiz (create_item dedupe o nome) e abre
-      { id: 'new-canvas', label: 'Novo canvas (desenho)', Icon: Shapes, run: run(() => {
-        const vault = store.currentVault;
-        if (!vault) return;
-        void store.createItem(vault, 'Canvas sem título.excalidraw', false).then((path) => {
-          if (path) void store.openTab(path);
-        });
-      }) },
-      { id: 'theme', label: 'Alternar tema (claro/escuro)', Icon: SunMoon, run: run(store.toggleTheme) },
-      { id: 'source', label: 'Alternar modo Fonte', hint: 'Ctrl+E', Icon: Code2, run: run(store.toggleEditorSourceMode) },
-      { id: 'wide', label: 'Alternar largura da linha (Confortável/Cheia)', Icon: MoveHorizontal, run: run(store.toggleEditorWideMode) },
+      { id: 'new-note', label: t('palette.newNote'), hint: 'Ctrl+N', Icon: FilePlus, run: run(onNewNote) },
+      // D0 review (Felipe): canvas pede NOME via modal (igual à nota) — sem nome fixo em pt
+      { id: 'new-canvas', label: t('palette.newCanvas'), Icon: Shapes, run: run(onNewCanvas) },
+      { id: 'settings', label: t('palette.settings'), Icon: Settings, run: run(() => store.setSettingsOpen(true)) },
+      { id: 'theme', label: t('palette.theme'), Icon: SunMoon, run: run(store.toggleTheme) },
+      { id: 'source', label: t('palette.sourceMode'), hint: 'Ctrl+E', Icon: Code2, run: run(store.toggleEditorSourceMode) },
+      { id: 'wide', label: t('palette.wide'), Icon: MoveHorizontal, run: run(store.toggleEditorWideMode) },
       // E3 (Spec 32): corretor ortográfico — o label mostra a AÇÃO (estado atual no hint)
-      { id: 'spellcheck', label: store.spellcheckEnabled ? 'Corretor ortográfico: desligar' : 'Corretor ortográfico: ligar', Icon: SpellCheck, run: run(store.toggleSpellcheck) },
-      { id: 'graph', label: 'Abrir o grafo', hint: 'Ctrl+G', Icon: Network, run: run(() => store.setCenterView('graph')) },
-      { id: 'search', label: 'Buscar no vault', hint: 'Ctrl+Shift+F', Icon: Search, run: run(() => store.setLeftPanelMode('search')) },
-      { id: 'tags', label: 'Painel de tags', Icon: Hash, run: run(() => store.setRightView('tags')) },
-      { id: 'backlinks', label: 'Painel de conexões (backlinks)', Icon: Link2, run: run(() => store.setRightView('backlinks')) },
-      { id: 'recalc-graph', label: 'Recalcular layout do grafo', hint: 'Ctrl+Shift+R', Icon: RefreshCw, run: run(store.loadGraphData) },
-      { id: 'rebuild-index', label: 'Reconstruir índice de busca', Icon: Database, run: run(store.rebuildIndex) },
+      { id: 'spellcheck', label: store.spellcheckEnabled ? t('palette.spellcheckOff') : t('palette.spellcheckOn'), Icon: SpellCheck, run: run(store.toggleSpellcheck) },
+      { id: 'graph', label: t('palette.graph'), hint: 'Ctrl+G', Icon: Network, run: run(() => store.setCenterView('graph')) },
+      { id: 'search', label: t('palette.search'), hint: 'Ctrl+Shift+F', Icon: Search, run: run(() => store.setLeftPanelMode('search')) },
+      { id: 'tags', label: t('palette.tags'), Icon: Hash, run: run(() => store.setRightView('tags')) },
+      { id: 'backlinks', label: t('palette.backlinks'), Icon: Link2, run: run(() => store.setRightView('backlinks')) },
+      { id: 'recalc-graph', label: t('palette.recalcGraph'), hint: 'Ctrl+Shift+R', Icon: RefreshCw, run: run(store.loadGraphData) },
+      { id: 'rebuild-index', label: t('palette.rebuildIndex'), Icon: Database, run: run(store.rebuildIndex) },
     ];
     // E6: exportação só faz sentido com uma nota aberta
     if (hasNote) {
       list.push(
-        { id: 'export-html', label: 'Exportar nota como HTML', Icon: FileDown, run: run(() => { exportNoteAsHtml(store.activeNoteContent ?? '', noteTitle); }) },
-        { id: 'print', label: 'Imprimir / Exportar PDF', Icon: Printer, run: run(() => printNote(store.activeNoteContent ?? '', noteTitle)) },
+        { id: 'export-html', label: t('palette.exportHtml'), Icon: FileDown, run: run(() => { exportNoteAsHtml(store.activeNoteContent ?? '', noteTitle); }) },
+        { id: 'print', label: t('palette.print'), Icon: Printer, run: run(() => printNote(store.activeNoteContent ?? '', noteTitle)) },
       );
     }
     return list;
     // store é estável entre renders (zustand); onNewNote/onClose idem via App
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onNewNote, onClose, hasNote, noteTitle]);
+  }, [onNewNote, onNewCanvas, onClose, hasNote, noteTitle, t]);
 
   const filtered = useMemo(() => {
     const scored = commands
@@ -159,7 +159,7 @@ export default function CommandPalette({ onClose, onNewNote }: CommandPalettePro
             ref={inputRef}
             type="text"
             value={query}
-            placeholder="Digite um comando…"
+            placeholder={t('palette.placeholder')}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
             className="flex-1 bg-transparent outline-none text-sm text-[var(--text-primary)] placeholder:text-[var(--text-faint)]"
@@ -169,7 +169,7 @@ export default function CommandPalette({ onClose, onNewNote }: CommandPalettePro
         <div ref={listRef} className="max-h-[320px] overflow-y-auto py-1.5">
           {filtered.length === 0 ? (
             <div className="px-4 py-6 text-center text-xs text-[var(--text-muted)]">
-              Nenhum comando encontrado
+              {t('palette.noResults')}
             </div>
           ) : (
             filtered.map((cmd, idx) => (

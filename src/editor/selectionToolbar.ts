@@ -3,6 +3,7 @@
 // é `view.dispatch({changes})` no buffer (byte-a-byte, mesmo canal do TaskMarker).
 // Nada de save aqui — o autosave existente cuida do resto.
 import { EditorView, showTooltip, type Tooltip } from '@codemirror/view';
+import i18n from '../i18n';
 import { StateField, type EditorState } from '@codemirror/state';
 
 // ---------------------------------------------------------------------------
@@ -103,15 +104,15 @@ interface ToolbarAction {
 }
 
 const ACTIONS: ToolbarAction[] = [
-  { glyph: 'B', title: 'Negrito', className: 'is-bold', run: (v) => toggleInline(v, '**', '**') },
-  { glyph: 'I', title: 'Itálico', className: 'is-italic', run: (v) => toggleInline(v, '*', '*') },
-  { glyph: 'S', title: 'Riscado', className: 'is-strike', run: (v) => toggleInline(v, '~~', '~~') },
-  { glyph: 'H', title: 'Destacar', className: 'is-mark', run: (v) => toggleInline(v, '<mark>', '</mark>') },
-  { glyph: 'U', title: 'Sublinhar', className: 'is-underline', run: (v) => toggleInline(v, '<u>', '</u>') },
-  { glyph: '<>', title: 'Código inline', className: 'is-code', run: (v) => toggleInline(v, '`', '`') },
-  { glyph: '[[]]', title: 'Wiki-link', className: 'is-code', run: (v) => toggleInline(v, '[[', ']]') },
-  { glyph: '❝', title: 'Citação', run: toggleQuote },
-  { glyph: '◧', title: 'Transformar em callout', run: toCallout },
+  { glyph: 'B', title: 'toolbar.bold', className: 'is-bold', run: (v) => toggleInline(v, '**', '**') },
+  { glyph: 'I', title: 'toolbar.italic', className: 'is-italic', run: (v) => toggleInline(v, '*', '*') },
+  { glyph: 'S', title: 'toolbar.strike', className: 'is-strike', run: (v) => toggleInline(v, '~~', '~~') },
+  { glyph: 'H', title: 'toolbar.highlight', className: 'is-mark', run: (v) => toggleInline(v, '<mark>', '</mark>') },
+  { glyph: 'U', title: 'toolbar.underline', className: 'is-underline', run: (v) => toggleInline(v, '<u>', '</u>') },
+  { glyph: '<>', title: 'toolbar.inlineCode', className: 'is-code', run: (v) => toggleInline(v, '`', '`') },
+  { glyph: '[[]]', title: 'toolbar.wikiLink', className: 'is-code', run: (v) => toggleInline(v, '[[', ']]') },
+  { glyph: '❝', title: 'toolbar.quote', run: toggleQuote },
+  { glyph: '◧', title: 'toolbar.toCallout', run: toCallout },
 ];
 
 function buildToolbarDom(view: EditorView): HTMLElement {
@@ -122,8 +123,9 @@ function buildToolbarDom(view: EditorView): HTMLElement {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.textContent = action.glyph;
-    btn.title = action.title;
-    btn.setAttribute('aria-label', action.title);
+    // D0 (Spec 33): title guarda a CHAVE; traduz no build do DOM (toolbar nasce por seleção)
+    btn.title = i18n.t(action.title);
+    btn.setAttribute('aria-label', i18n.t(action.title));
     if (action.className) btn.classList.add(action.className);
     // mousedown + preventDefault: o clique NÃO pode roubar a seleção do editor
     btn.addEventListener('mousedown', (event) => {
