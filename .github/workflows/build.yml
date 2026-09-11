@@ -2,19 +2,40 @@ name: 'Build Mycellia'
 
 on:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Tag existente pra publicar como Release (ex.: v0.6.1). Vazio = só builda, sem Release (comportamento atual).'
+        required: false
+        type: string
   push:
     tags:
       - 'v*'
 
 jobs:
   build:
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
         platform: [windows-latest, macos-latest, ubuntu-latest]
     runs-on: ${{ matrix.platform }}
     steps:
+      - name: Determine release target
+        id: release_vars
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          elif [ -n "${{ inputs.release_tag }}" ]; then
+            echo "tag=${{ inputs.release_tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.release_vars.outputs.tag }}
 
       - name: Setup Node
         uses: actions/setup-node@v5
@@ -49,6 +70,15 @@ jobs:
       - name: Build Tauri App
         id: tauri-build
         uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ steps.release_vars.outputs.tag }}
+          releaseName: ${{ steps.release_vars.outputs.tag != '' && format('Mycellia {0}', steps.release_vars.outputs.tag) || '' }}
+          releaseBody: 'Build automático. Instruções de instalação por sistema: packaging/README.md no repositório. Pré-release até a primeira release pública (gate: auto-update + instalador com cara de app real).'
+          releaseDraft: false
+          prerelease: true
+          includeUpdaterJson: false
 
       - name: Upload Bundles
         uses: actions/upload-artifact@v5
@@ -59,5 +89,31 @@ jobs:
             src-tauri/target/release/bundle/macos/*.app
             src-tauri/target/release/bundle/nsis/*.exe
             src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/rpm/*.rpm
             src-tauri/target/release/bundle/appimage/*.AppImage
           if-no-files-found: warn
+
+  aur:
+    name: Publicar AUR (mycellia-bin)
+    needs: build
+    if: github.event_name == 'push' && vars.PUBLISH_AUR == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Ajustar pkgver no PKGBUILD pra tag publicada
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          sed -i "s/^pkgver=.*/pkgver=${VERSION}/" packaging/aur/PKGBUILD
+
+      - name: Publicar no AUR
+        if: ${{ secrets.AUR_SSH_PRIVATE_KEY != '' }}
+        uses: KSXGitHub/github-actions-deploy-aur@v4.2.0
+        with:
+          pkgname: mycellia-bin
+          pkgbuild: ./packaging/aur/PKGBUILD
+          updpkgsums: true
+          commit_username: ${{ vars.AUR_USERNAME }}
+          commit_email: ${{ vars.AUR_EMAIL }}
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_message: 'Atualiza mycellia-bin para ${{ github.ref_name }}'

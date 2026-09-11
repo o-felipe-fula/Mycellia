@@ -4,14 +4,22 @@
   "identifier": "com.mycellia.app",
   "bundle": {
     "active": true,
-    "targets": ["nsis", "app", "dmg", "deb", "appimage"],
+    "targets": ["nsis", "app", "dmg", "deb", "rpm", "appimage"],
+    "category": "Productivity",
+    "shortDescription": "Editor de conhecimento .md local-first, compatível com Obsidian",
+    "longDescription": "O Mycellia é um editor de conhecimento em Markdown: suas notas ficam como arquivos .md puros no disco, indexados por um backend em Rust com SQLite/FTS5, visualizados num grafo vivo e editados com preview instantâneo. Compatível com vaults do Obsidian (wiki-links, callouts, tags, frontmatter, embeds e block refs). Zero lock-in, zero nuvem obrigatória — funciona 100% offline.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "linux": {
+      "rpm": {
+        "depends": ["webkit2gtk4.1", "gtk3"]
+      }
+    }
   },
   "app": {
     "windows": [
