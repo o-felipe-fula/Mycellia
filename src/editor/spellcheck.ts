@@ -10,6 +10,7 @@ import { EditorView, Decoration, ViewPlugin, type ViewUpdate, type DecorationSet
 import { StateEffect, StateField, type EditorState } from '@codemirror/state';
 import { invoke } from '@tauri-apps/api/core';
 import { useAppStore } from '../store/appStore';
+import i18n from '../i18n';
 import { isRangeInCode } from './utils';
 
 export interface WordSpan {
@@ -238,26 +239,26 @@ function openSpellMenu(view: EditorView, hit: SpellHit, x: number, y: number) {
 
   const hintEl = document.createElement('div');
   hintEl.className = 'mycellia-spellmenu-hint';
-  hintEl.textContent = 'Buscando sugestões…';
+  hintEl.textContent = i18n.t('spell.searching');
   menu.appendChild(hintEl);
 
   const actions = document.createElement('div');
   actions.className = 'mycellia-spellmenu-actions';
   actions.appendChild(
-    menuButton('Adicionar ao dicionário', 'mycellia-spellmenu-add', () => {
+    menuButton(i18n.t('spell.addToDictionary'), 'mycellia-spellmenu-add', () => {
       void invoke('add_personal_word', { word: hit.word })
         .then(() => {
           clearSpellCache(); // o veredito da palavra mudou pro processo inteiro
           view.dispatch({ effects: spellcheckToggled.of() });
         })
         .catch(() => {
-          useAppStore.getState().notify('warning', 'Não foi possível salvar no dicionário pessoal.');
+          useAppStore.getState().notify('warning', i18n.t('spell.addError'));
         });
       closeSpellMenu();
     })
   );
   actions.appendChild(
-    menuButton('Ignorar nesta sessão', 'mycellia-spellmenu-ignore', () => {
+    menuButton(i18n.t('spell.ignoreSession'), 'mycellia-spellmenu-ignore', () => {
       ignoreWordThisSession(hit.word);
       view.dispatch({ effects: spellcheckToggled.of() });
       closeSpellMenu();
@@ -295,7 +296,7 @@ function openSpellMenu(view: EditorView, hit: SpellHit, x: number, y: number) {
       if (suggestions.length === 0) {
         const none = document.createElement('div');
         none.className = 'mycellia-spellmenu-hint';
-        none.textContent = 'Sem sugestões';
+        none.textContent = i18n.t('spell.noSuggestions');
         menu.prepend(none);
         return;
       }
@@ -312,7 +313,7 @@ function openSpellMenu(view: EditorView, hit: SpellHit, x: number, y: number) {
     })
     .catch(() => {
       if (openMenu !== menu) return;
-      hintEl.textContent = 'Sem sugestões';
+      hintEl.textContent = i18n.t('spell.noSuggestions');
     });
 }
 

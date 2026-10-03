@@ -1,7 +1,10 @@
 import { useAppStore } from '../store/appStore';
-import { Folder, Search, Activity } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { Folder, Search, Activity, Settings } from 'lucide-react';
 
 export default function ActivityRibbon() {
+  // D0 (Spec 33): tooltips via i18n (área-prova da extração) + engrenagem no rodapé
+  const { t } = useTranslation();
   const {
     leftPanelMode,
     isLeftPanelOpen,
@@ -10,6 +13,7 @@ export default function ActivityRibbon() {
     setLeftPanelMode,
     toggleLeftPanel,
     setCenterView,
+    setSettingsOpen,
     platform,
   } = useAppStore();
 
@@ -57,7 +61,7 @@ export default function ActivityRibbon() {
               ? 'text-[var(--accent)] bg-[var(--accent-muted)]'
               : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
           }`}
-          title={`Navegador de Arquivos (${mod} + Shift + E)`}
+          title={t('ribbon.files', { mod })}
         >
           <Folder className="w-5 h-5" />
           {isFilesActive && (
@@ -73,7 +77,7 @@ export default function ActivityRibbon() {
               ? 'text-[var(--accent)] bg-[var(--accent-muted)]'
               : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
           }`}
-          title={`Busca Global (${mod} + Shift + F)`}
+          title={t('ribbon.search', { mod })}
         >
           <Search className="w-5 h-5" />
           {isSearchActive && (
@@ -89,7 +93,7 @@ export default function ActivityRibbon() {
               ? 'text-[var(--accent)] bg-[var(--accent-muted)]'
               : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
           }`}
-          title={`Visualizar Grafo (${mod} + G)`}
+          title={t('ribbon.graph', { mod })}
         >
           <Activity className="w-5 h-5" />
           {isGraphActive && (
@@ -98,7 +102,15 @@ export default function ActivityRibbon() {
         </button>
       </div>
 
-
+      {/* D0 (Spec 33): Configurações — o slot de baixo do justify-between era dela */}
+      <button
+        data-testid="ribbon-settings"
+        onClick={() => setSettingsOpen(true)}
+        className="p-2.5 rounded-lg transition-all duration-200 cursor-pointer hover:bg-[var(--substrate-raised)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+        title={t('ribbon.settings')}
+      >
+        <Settings className="w-5 h-5" />
+      </button>
     </div>
   );
 }

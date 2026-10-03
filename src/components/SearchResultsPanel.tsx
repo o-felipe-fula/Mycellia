@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../store/appStore';
 import { FileText } from 'lucide-react';
 
@@ -39,6 +40,7 @@ interface SearchResultsPanelProps {
 }
 
 export const SearchResultsPanel: React.FC<SearchResultsPanelProps> = ({ onItemClick, inline }) => {
+  const { t } = useTranslation();
   const {
     searchResults,
     graphSearchQuery,
@@ -82,13 +84,13 @@ export const SearchResultsPanel: React.FC<SearchResultsPanelProps> = ({ onItemCl
       ) : searchResults.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-6 px-4 text-center font-sans">
           <span className="text-xs text-[var(--text-muted)]">
-            Nenhum resultado para «{graphSearchQuery}».
+            {t('search.noResults', { query: graphSearchQuery })}
           </span>
         </div>
       ) : (
         <div className="flex flex-col gap-1 overflow-y-auto custom-scrollbar pr-1">
           <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-[var(--text-muted)] font-semibold border-b border-[var(--border-strong)]/40 mb-1">
-            Resultados da busca ({searchResults.length})
+            {t('search.results', { total: searchResults.length })}
           </div>
           {searchResults.map((result) => (
             <button

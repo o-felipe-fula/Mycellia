@@ -11,6 +11,7 @@ import { useEffect, useRef, useState } from 'react';
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { Shapes, FileText, File as FileIcon, Link2, Image as ImageIcon } from 'lucide-react';
 import { useAppStore } from '../store/appStore';
+import i18n from '../i18n';
 import { getFileKind, getExtension } from '../utils/fileKind';
 import { renderMarkdownFragment } from '../utils/exportNote';
 import { findFileInTree, findFilePathInTree } from '../editor/utils';
@@ -220,7 +221,7 @@ function FileNodeCard({ relPath, target }: { relPath: string; target: FileNodeTa
           <span className="truncate">{name}</span>
         </div>
         <div className="flex-1 flex items-center justify-center px-3 text-xs italic text-[var(--text-muted)] select-none text-center">
-          não encontrado no vault
+          {i18n.t('canvas.notFound')}
         </div>
       </div>
     );
@@ -423,13 +424,13 @@ export default function CanvasEditor({ content, onChange }: CanvasEditorProps) {
       notifiedRef.current = true;
       useAppStore
         .getState()
-        .notify('warning', 'Canvas com JSON inválido — exibindo o conteúdo cru (somente leitura).');
+        .notify('warning', i18n.t('canvas.invalidJsonToast'));
     }
     return (
       <div className="flex flex-col h-full w-full overflow-hidden">
-        <CanvasHeader filename={filename} badge="canvas · json inválido" />
+        <CanvasHeader filename={filename} badge={i18n.t('canvas.badgeCanvasInvalid')} />
         <div className="flex-shrink-0 text-xs text-[var(--text-muted)] mb-2 select-none">
-          Visualização somente leitura. Para corrigir, edite o arquivo fora do app (ou renomeie para .json).
+          {i18n.t('canvas.readOnlyHint')}
         </div>
         <pre
           data-testid="canvas-fallback"
@@ -733,7 +734,7 @@ export default function CanvasEditor({ content, onChange }: CanvasEditorProps) {
     if (!currentVault) return;
     const { abs, missing } = resolveFileNode(relPath);
     if (missing) {
-      useAppStore.getState().notify('warning', `Arquivo não está mais no vault: ${relPath}`);
+      useAppStore.getState().notify('warning', i18n.t('canvas.notInVault', { path: relPath }));
       return;
     }
     if (getFileKind(abs) === 'external') {
@@ -754,7 +755,7 @@ export default function CanvasEditor({ content, onChange }: CanvasEditorProps) {
 
   return (
     <div className="flex flex-col h-full w-full overflow-hidden">
-      <CanvasHeader filename={filename} badge="canvas" />
+      <CanvasHeader filename={filename} badge={i18n.t('canvas.badgeCanvas')} />
 
       <div
         ref={outerRef}
@@ -789,7 +790,7 @@ export default function CanvasEditor({ content, onChange }: CanvasEditorProps) {
             ))}
             <button
               data-testid="canvas-color-clear"
-              title="Sem cor"
+              title={i18n.t('canvas.clearColor')}
               className="w-4 h-4 rounded-full border border-[var(--border-strong)] cursor-pointer text-[10px] leading-none text-[var(--text-muted)]"
               onClick={() => setSelectionColor(null)}
             >

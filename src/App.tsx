@@ -14,6 +14,7 @@ import {
   Link2,
   Activity,
   Hash,
+  Shapes,
 } from 'lucide-react';
 import FileTree from './components/FileTree';
 import FileViewer from './components/FileViewer';
@@ -30,13 +31,17 @@ import StatusBar from './components/StatusBar';
 import WelcomeScreen from './components/WelcomeScreen';
 import ConflictModal from './components/ConflictModal';
 import GlobalErrorBanner from './components/GlobalErrorBanner';
+import SettingsModal from './components/SettingsModal';
 import { InputModal } from './components/InputModal';
 import CommandPalette from './components/CommandPalette';
 import { validateItemName } from './utils/validateItemName';
 import { usePanelResize } from './hooks/usePanelResize';
 import { useGlobalShortcuts } from './hooks/useGlobalShortcuts';
+import { useTranslation } from 'react-i18next';
 
 export default function App() {
+  // D0 (Spec 33): strings do shell via i18n
+  const { t } = useTranslation();
   const {
     initApp,
     currentVault,
@@ -77,44 +82,67 @@ export default function App() {
     return [
       {
         id: 'backlinks' as const,
-        label: 'Backlinks',
+        label: t('app.tabBacklinks'),
         icon: Link2,
         disabled: false,
         show: true,
       },
       {
         id: 'graph' as const,
-        label: 'Grafo',
+        label: t('app.tabGraph'),
         icon: Activity,
         disabled: false,
         show: centerView !== 'graph',
       },
       {
         id: 'tags' as const,
-        label: 'Tags',
+        label: t('app.tabTags'),
         icon: Hash,
         disabled: false,
         show: true,
       },
       {
         id: 'editor' as const,
-        label: 'Nota',
+        label: t('app.tabNote'),
         icon: FileText,
         disabled: !activeTab,
         show: centerView !== 'editor',
       },
     ].filter((tab) => tab.show);
-  }, [centerView, activeTab]);
+  }, [centerView, activeTab, t]);
 
   const { handleMouseDown, handleRightMouseDown } = usePanelResize();
 
   // UI polish (2026-07-16): modal do DS no lugar do prompt() nativo
   const [showNewNoteModal, setShowNewNoteModal] = React.useState(false);
+  // D0 review (Felipe, 30/07): canvas novo também pede NOME (nada de "Canvas sem título")
+  const [showNewCanvasModal, setShowNewCanvasModal] = React.useState(false);
 
   const handleCreateNewFile = React.useCallback(() => {
     if (!currentVault) return;
     setShowNewNoteModal(true);
   }, [currentVault]);
+
+  const handleCreateNewCanvas = React.useCallback(() => {
+    if (!currentVault) return;
+    setShowNewCanvasModal(true);
+  }, [currentVault]);
+
+  const confirmCreateNewCanvas = React.useCallback(
+    async (name: string) => {
+      if (!currentVault) return;
+      const fullName = name.endsWith('.excalidraw') ? name : `${name}.excalidraw`;
+      try {
+        const path = await createItem(currentVault, fullName, false);
+        setShowNewCanvasModal(false);
+        if (path) await useAppStore.getState().openTab(path);
+      } catch (err) {
+        setShowNewCanvasModal(false);
+        useAppStore.getState().notify('error', t('app.createFileError', { error: String(err) }));
+      }
+    },
+    [currentVault, createItem, t],
+  );
 
   const confirmCreateNewFile = React.useCallback(
     async (name: string) => {
@@ -125,10 +153,10 @@ export default function App() {
         setShowNewNoteModal(false);
       } catch (err) {
         setShowNewNoteModal(false);
-        useAppStore.getState().notify('error', `Erro ao criar arquivo: ${err}`);
+        useAppStore.getState().notify('error', t('app.createFileError', { error: String(err) }));
       }
     },
-    [currentVault, createItem],
+    [currentVault, createItem, t],
   );
 
   // Inicializa o app e carrega configurações locais
@@ -233,21 +261,21 @@ export default function App() {
                         <button
                           onClick={handleCreateNewFile}
                           className="p-1 rounded hover:bg-[var(--substrate-raised)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
-                          title={`Nova Nota (${isMac ? '⌘ Cmd' : 'Ctrl'} + N)`}
+                          title={t('app.newNoteTooltip', { mod: isMac ? '⌘ Cmd' : 'Ctrl' })}
                         >
                           <FilePlus className="w-3.5 h-3.5" />
                         </button>
                         <button
                           onClick={closeVault}
                           className="p-1 rounded hover:bg-[var(--danger-muted)] text-[var(--text-secondary)] hover:text-[var(--danger)] cursor-pointer"
-                          title="Fechar Vault"
+                          title={t('app.closeVault')}
                         >
                           <LogOut className="w-3.5 h-3.5" />
                         </button>
                         <button
                           onClick={toggleLeftPanel}
                           className="p-1 rounded hover:bg-[var(--substrate-raised)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
-                          title="Recolher Painel"
+                          title={t('app.collapsePanel')}
                         >
                           <X className="w-3.5 h-3.5" />
                         </button>
@@ -280,13 +308,13 @@ export default function App() {
                         /* Empty State: DS §10 */
                         <div className="h-full flex flex-col items-center justify-center p-4 text-center gap-3">
                           <span className="text-xs text-[var(--text-muted)] font-sans">
-                            Seu vault está vazio.
+                            {t('app.emptyVault')}
                           </span>
                           <button
                             onClick={handleCreateNewFile}
                             className="px-3 py-1.5 text-xs rounded-md bg-[var(--accent)] text-[var(--substrate-void)] hover:bg-[var(--accent-bright)] font-semibold transition-all cursor-pointer"
                           >
-                            + Criar primeira nota
+                            {t('app.createFirstNote')}
                           </button>
                         </div>
                       ) : (
@@ -299,12 +327,12 @@ export default function App() {
                   <div className="flex-1 flex flex-col overflow-hidden p-3 gap-3">
                     <div className="flex items-center justify-between flex-shrink-0">
                       <span className="text-xs font-semibold uppercase tracking-wider text-[var(--text-primary)]">
-                        Busca Global
+                        {t('app.globalSearch')}
                       </span>
                       <button
                         onClick={toggleLeftPanel}
                         className="p-1 rounded hover:bg-[var(--substrate-raised)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer transition-all"
-                        title="Recolher Painel"
+                        title={t('app.collapsePanel')}
                       >
                         <X className="w-3.5 h-3.5" />
                       </button>
@@ -313,7 +341,7 @@ export default function App() {
                       <Search className="absolute left-2.5 w-3.5 h-3.5 text-[var(--accent-dim)]" />
                       <input
                         type="text"
-                        placeholder="Buscar notas..."
+                        placeholder={t('app.searchPlaceholder')}
                         value={graphSearchQuery}
                         onChange={(e) => setGraphSearchQuery(e.target.value)}
                         className="w-full pl-8 pr-3 py-1.5 text-xs text-[var(--accent-bright)] placeholder-[var(--accent-dim)] bg-[var(--substrate-raised)]/50 border border-[var(--accent-dim)]/20 rounded-md focus:border-[var(--accent)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)]/25 transition-all duration-300"
@@ -389,7 +417,7 @@ export default function App() {
                           ? 'opacity-40 cursor-not-allowed text-[var(--text-muted)] bg-transparent'
                           : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--substrate-raised)] cursor-pointer'
                       }`}
-                      title="Trocar Foco (Grafo / Editor)"
+                      title={t('app.swapFocus')}
                     >
                       <ArrowLeftRight className="w-3.5 h-3.5" />
                     </button>
@@ -472,7 +500,7 @@ export default function App() {
                           ? 'opacity-40 cursor-not-allowed text-[var(--text-muted)] bg-transparent'
                           : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--substrate-raised)] cursor-pointer'
                       }`}
-                      title="Trocar Foco (Grafo / Editor)"
+                      title={t('app.swapFocus')}
                     >
                       <ArrowLeftRight className="w-3.5 h-3.5" />
                     </button>
@@ -481,7 +509,7 @@ export default function App() {
                     <button
                       onClick={() => toggleRightPanel()}
                       className="p-1.5 rounded hover:bg-[var(--substrate-raised)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer transition-all"
-                      title="Recolher Painel"
+                      title={t('app.collapsePanel')}
                     >
                       <X className="w-3.5 h-3.5" />
                     </button>
@@ -537,22 +565,35 @@ export default function App() {
 
       <ConflictModal />
       <GlobalErrorBanner />
+      <SettingsModal />
       <ToastContainer />
       {showNewNoteModal && (
         <InputModal
-          title="Nova nota"
-          placeholder="Nome da nota (ex: Minha Nota)"
-          confirmLabel="Criar nota"
+          title={t('app.newNoteTitle')}
+          placeholder={t('app.newNotePlaceholder')}
+          confirmLabel={t('app.newNoteConfirm')}
           icon={<FilePlus className="w-5 h-5 text-[var(--accent)]" />}
           validate={validateItemName}
           onConfirm={confirmCreateNewFile}
           onCancel={() => setShowNewNoteModal(false)}
         />
       )}
+      {showNewCanvasModal && (
+        <InputModal
+          title={t('app.newCanvasTitle')}
+          placeholder={t('app.newCanvasPlaceholder')}
+          confirmLabel={t('app.newCanvasConfirm')}
+          icon={<Shapes className="w-5 h-5 text-[var(--accent)]" />}
+          validate={validateItemName}
+          onConfirm={confirmCreateNewCanvas}
+          onCancel={() => setShowNewCanvasModal(false)}
+        />
+      )}
       {showPalette && (
         <CommandPalette
           onClose={() => setShowPalette(false)}
           onNewNote={handleCreateNewFile}
+          onNewCanvas={handleCreateNewCanvas}
         />
       )}
       {currentVault && <StatusBar />}

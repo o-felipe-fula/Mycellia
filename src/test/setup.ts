@@ -1,5 +1,16 @@
 import '@testing-library/jest-dom';
-import { vi } from 'vitest';
+import { vi, beforeEach } from 'vitest';
+
+// D0 (Spec 33): o jsdom nasce com navigator.language = 'en-US' — sem isto, o i18n
+// resolveria 'auto' → en e TODA a suíte que assere strings pt-BR quebraria.
+// Baseline determinística: idioma do sistema simulado = pt-BR em todos os testes
+// (testes de i18n sobrescrevem localmente quando precisam).
+Object.defineProperty(window.navigator, 'language', { value: 'pt-BR', configurable: true });
+
+beforeEach(async () => {
+  const { applyLanguage } = await import('../i18n');
+  applyLanguage('pt-BR');
+});
 
 interface TestWindow extends Window {
   __tauriListeners?: Record<string, ((event: { payload: unknown }) => void)[]>;

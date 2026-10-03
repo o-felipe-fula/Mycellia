@@ -1,7 +1,9 @@
 import { useAppStore } from '../store/appStore';
+import { useTranslation } from 'react-i18next';
 import { FileText, ArrowDownLeft, ArrowUpRight, FilePlus } from 'lucide-react';
 
 export default function BacklinksPanel() {
+  const { t } = useTranslation();
   const { activeNoteBacklinks, activeNoteOutgoingLinks, openTab, handleWikiLinkClick, isBacklinksLoading } = useAppStore();
 
   const handleBacklinkClick = async (path: string) => {
@@ -42,13 +44,13 @@ export default function BacklinksPanel() {
             <div className="flex items-center gap-1.5 px-1 pt-0.5">
               <ArrowDownLeft className="w-3 h-3 text-[var(--text-muted)]" />
               <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-                Apontam para cá
+                {t('backlinks.incoming')}
               </span>
             </div>
 
             {activeNoteBacklinks.length === 0 ? (
               <p className="text-xs text-[var(--text-muted)] italic px-1 pb-1.5">
-                Nenhuma nota aponta para esta ainda.
+                {t('backlinks.incomingEmpty')}
               </p>
             ) : (
               activeNoteBacklinks.map((backlink) => {
@@ -94,13 +96,13 @@ export default function BacklinksPanel() {
             <div className="flex items-center gap-1.5 px-1 pt-2">
               <ArrowUpRight className="w-3 h-3 text-[var(--text-muted)]" />
               <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-                Esta nota aponta para
+                {t('backlinks.outgoing')}
               </span>
             </div>
 
             {activeNoteOutgoingLinks.length === 0 ? (
               <p className="text-xs text-[var(--text-muted)] italic px-1">
-                Esta nota não referencia nenhuma outra.
+                {t('backlinks.outgoingEmpty')}
               </p>
             ) : (
               activeNoteOutgoingLinks.map((link) => {
@@ -109,7 +111,7 @@ export default function BacklinksPanel() {
                   <button
                     key={link.target_name}
                     onClick={() => handleOutgoingClick(link)}
-                    title={isUnresolved ? 'Nota ainda não criada — clique para criar' : undefined}
+                    title={isUnresolved ? t('backlinks.unresolvedTooltip') : undefined}
                     className="w-full text-left glass-card p-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--substrate-raised)]/50 hover:bg-[var(--substrate-raised)]/20 transition-all duration-200 cursor-pointer flex items-center gap-1.5 min-w-0 group hover:scale-[1.01]"
                   >
                     {isUnresolved ? (
@@ -126,7 +128,7 @@ export default function BacklinksPanel() {
                     </span>
                     {isUnresolved && (
                       <span className="text-[10px] text-[var(--text-muted)] italic flex-shrink-0 ml-auto">
-                        criar
+                        {t('backlinks.create')}
                       </span>
                     )}
                   </button>

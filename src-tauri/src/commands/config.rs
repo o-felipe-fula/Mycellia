@@ -23,6 +23,13 @@ pub struct AppConfig {
     // configs antigos carregáveis sem migração)
     #[serde(default = "default_true")]
     pub spellcheck_enabled: bool,
+    // D0 (Spec 33): idioma da UI — "auto" (detecta do sistema) | "pt-BR" | "en"
+    #[serde(default = "default_language")]
+    pub language: String,
+}
+
+fn default_language() -> String {
+    "auto".to_string()
 }
 
 fn default_right_panel_width() -> u32 {
@@ -43,6 +50,7 @@ impl Default for AppConfig {
             editor_wide_mode: false,
             right_panel_width: 300,
             spellcheck_enabled: true,
+            language: "auto".to_string(),
         }
     }
 }

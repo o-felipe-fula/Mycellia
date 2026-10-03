@@ -1,12 +1,14 @@
 import React, { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { FilePlus, FolderPlus, Edit, Trash2 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { FilePlus, FolderPlus, Edit, Trash2, Shapes } from 'lucide-react';
 
 interface ContextMenuProps {
   x: number;
   y: number;
   onClose: () => void;
   onCreateFile: () => void;
+  onCreateCanvas: () => void;
   onCreateFolder: () => void;
   onRename: () => void;
   onDelete: () => void;
@@ -17,10 +19,12 @@ export default function ContextMenu({
   y,
   onClose,
   onCreateFile,
+  onCreateCanvas,
   onCreateFolder,
   onRename,
   onDelete,
 }: ContextMenuProps) {
+  const { t } = useTranslation();
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Fecha ao clicar fora ou apertar Esc
@@ -48,7 +52,7 @@ export default function ContextMenu({
 
   // Ajusta a posição para não transbordar da tela
   const menuWidth = 180;
-  const menuHeight = 160;
+  const menuHeight = 192;
 
   let adjustedX = x;
   let adjustedY = y;
@@ -84,7 +88,18 @@ export default function ContextMenu({
         className="flex items-center gap-2.5 px-3 py-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--substrate-raised)] text-left cursor-pointer transition-colors"
       >
         <FilePlus className="w-4 h-4 text-[var(--accent)]" />
-        <span>Nova Nota (.md)</span>
+        <span>{t('fileTree.menuNewNote')}</span>
+      </button>
+
+      <button
+        onClick={() => {
+          onCreateCanvas();
+          onClose();
+        }}
+        className="flex items-center gap-2.5 px-3 py-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--substrate-raised)] text-left cursor-pointer transition-colors"
+      >
+        <Shapes className="w-4 h-4 text-[var(--tag)]" />
+        <span>{t('fileTree.menuNewCanvas')}</span>
       </button>
 
       <button
@@ -95,7 +110,7 @@ export default function ContextMenu({
         className="flex items-center gap-2.5 px-3 py-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--substrate-raised)] text-left cursor-pointer transition-colors"
       >
         <FolderPlus className="w-4 h-4 text-[var(--tag)]" />
-        <span>Nova Pasta</span>
+        <span>{t('fileTree.menuNewFolder')}</span>
       </button>
 
       <div className="h-[1px] bg-[var(--border-subtle)] my-1" />
@@ -108,7 +123,7 @@ export default function ContextMenu({
         className="flex items-center gap-2.5 px-3 py-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--substrate-raised)] text-left cursor-pointer transition-colors"
       >
         <Edit className="w-4 h-4 text-[var(--accent)]" />
-        <span>Renomear</span>
+        <span>{t('fileTree.menuRename')}</span>
       </button>
 
       <button
@@ -119,7 +134,7 @@ export default function ContextMenu({
         className="flex items-center gap-2.5 px-3 py-2 text-[var(--danger)] hover:bg-[var(--danger-muted)] hover:text-[var(--danger)] text-left cursor-pointer transition-colors"
       >
         <Trash2 className="w-4 h-4" />
-        <span>Excluir</span>
+        <span>{t('fileTree.menuDelete')}</span>
       </button>
     </div>,
     document.body,

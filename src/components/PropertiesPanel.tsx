@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../store/appStore';
 import { isMap, isSeq, Pair } from 'yaml';
 import {
@@ -13,6 +14,7 @@ import {
 } from 'lucide-react';
 
 export default function PropertiesPanel() {
+  const { t } = useTranslation();
   const { activeNoteYamlDoc, updateActiveNoteFrontmatter } = useAppStore();
   const [isOpen, setIsOpen] = useState(false); // Collapsed by default
   const [newKey, setNewKey] = useState('');
@@ -113,7 +115,7 @@ export default function PropertiesPanel() {
           ))}
           <input
             type="text"
-            placeholder="Add tag..."
+            placeholder={t('properties.addTagPlaceholder')}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault();
@@ -167,7 +169,7 @@ export default function PropertiesPanel() {
             className="inline-flex items-center gap-1 text-[var(--text-muted)] hover:text-[var(--accent)] text-[11px] font-medium py-1 px-2 rounded border border-dashed border-[var(--border-default)] hover:border-[var(--accent)] transition-all cursor-pointer bg-transparent"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>adicionar propriedades</span>
+            <span>{t('properties.addProperties')}</span>
           </button>
         </div>
       );
@@ -179,7 +181,7 @@ export default function PropertiesPanel() {
         className="w-full border border-[var(--border-default)] bg-[var(--substrate-surface)] hover:bg-[var(--substrate-raised)] rounded-lg p-2 flex items-center gap-2 cursor-pointer transition-all select-none text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
       >
         <Tags className="w-3.5 h-3.5 text-[var(--accent)]" />
-        <span className="font-semibold text-[10px] uppercase tracking-wider">Propriedades</span>
+        <span className="font-semibold text-[10px] uppercase tracking-wider">{t('properties.title')}</span>
         <div className="flex flex-wrap items-center gap-1.5 ml-2 overflow-hidden max-h-6">
           {properties.map(({ key, value }) => {
             const displayVal = Array.isArray(value)
@@ -208,7 +210,7 @@ export default function PropertiesPanel() {
       >
         <div className="flex items-center gap-2 font-display font-semibold tracking-wide text-xs">
           <Tags className="w-4 h-4 text-[var(--accent)] animate-pulse" />
-          <span>PROPRIEDADES {properties.length > 0 && `(${properties.length})`}</span>
+          <span>{t('properties.header')} {properties.length > 0 && `(${properties.length})`}</span>
         </div>
         <ChevronDown className="w-4 h-4" />
       </div>
@@ -217,7 +219,7 @@ export default function PropertiesPanel() {
         {/* List of existing properties */}
         {properties.length === 0 ? (
           <div className="text-[11px] text-[var(--text-muted)] italic py-1 pl-1">
-            Nenhuma propriedade definida nesta nota.
+            {t('properties.empty')}
           </div>
         ) : (
           <div className="border border-[var(--border-default)] rounded-lg overflow-hidden bg-[var(--substrate-void)] divide-y divide-[var(--border-subtle)]">
@@ -239,7 +241,7 @@ export default function PropertiesPanel() {
                       }
                     }}
                     className="w-full bg-transparent border-0 focus:ring-0 text-xs font-semibold text-[var(--text-secondary)] focus:text-[var(--text-primary)] p-0.5 focus:outline-none font-mono truncate"
-                    title="Clique para renomear a propriedade"
+                    title={t('properties.renameTooltip')}
                   />
                 </div>
 
@@ -253,7 +255,7 @@ export default function PropertiesPanel() {
                   type="button"
                   onClick={() => handleDeleteProperty(key)}
                   className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--danger)] opacity-0 group-hover:opacity-100 transition-opacity focus:opacity-100 focus:outline-none cursor-pointer"
-                  title="Excluir propriedade"
+                  title={t('properties.deleteTooltip')}
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
@@ -271,7 +273,7 @@ export default function PropertiesPanel() {
             <Key className="w-3.5 h-3.5 text-[var(--text-muted)]" />
             <input
               type="text"
-              placeholder="Propriedade"
+              placeholder={t('properties.keyPlaceholder')}
               value={newKey}
               onChange={(e) => setNewKey(e.target.value)}
               className="bg-transparent border-0 focus:ring-0 text-xs text-[var(--text-primary)] p-0 w-full focus:outline-none font-mono"
@@ -288,10 +290,10 @@ export default function PropertiesPanel() {
               type="text"
               placeholder={
                 newType === 'list'
-                  ? 'Valores (separados por vírgula)'
+                  ? t('properties.listPlaceholder')
                   : newType === 'boolean'
                     ? 'true / false'
-                    : 'Valor'
+                    : t('properties.valuePlaceholder')
               }
               value={newValue}
               onChange={(e) => setNewValue(e.target.value)}
@@ -304,9 +306,9 @@ export default function PropertiesPanel() {
             onChange={(e) => setNewType(e.target.value as 'text' | 'boolean' | 'list')}
             className="bg-[var(--substrate-surface)] border border-[var(--border-default)] rounded-lg text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] px-2.5 py-1 focus:outline-none cursor-pointer font-mono"
           >
-            <option value="text">Texto</option>
-            <option value="boolean">Booleano</option>
-            <option value="list">Lista/Tags</option>
+            <option value="text">{t('properties.typeText')}</option>
+            <option value="boolean">{t('properties.typeBoolean')}</option>
+            <option value="list">{t('properties.typeList')}</option>
           </select>
 
           <button
@@ -315,7 +317,7 @@ export default function PropertiesPanel() {
             className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-[var(--accent)] to-[var(--tag)] text-[var(--accent-contrast)] font-bold text-xs hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 cursor-pointer transition-all duration-200"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>Adicionar</span>
+            <span>{t('properties.add')}</span>
           </button>
         </form>
       </div>

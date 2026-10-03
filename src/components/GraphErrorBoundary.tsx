@@ -1,4 +1,5 @@
 import { Component, ErrorInfo, ReactNode } from 'react';
+import i18n from '../i18n';
 import { AlertCircle, RefreshCw } from 'lucide-react';
 
 interface Props {
@@ -37,10 +38,10 @@ export class GraphErrorBoundary extends Component<Props, State> {
               <AlertCircle className="w-8 h-8" />
             </div>
             <h3 className="text-sm font-semibold text-danger tracking-wide">
-              Falha ao Carregar o Grafo
+              {i18n.t('graph.errorTitle')}
             </h3>
             <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-              Ocorreu uma falha inesperada ao renderizar a visualização bioluminescente.
+              {i18n.t('graph.errorBody')}
             </p>
             {this.state.error && (
               <pre className="w-full p-2 bg-black/40 rounded text-[10px] text-[var(--text-muted)] text-left overflow-x-auto max-h-24">
@@ -52,7 +53,7 @@ export class GraphErrorBoundary extends Component<Props, State> {
               className="flex items-center gap-2 px-4 py-2 rounded-md bg-danger text-[var(--substrate-void)] hover:bg-[var(--danger)]/90 active:scale-95 transition-all text-xs font-semibold"
             >
               <RefreshCw className="w-3.5 h-3.5" />
-              <span>Tentar Novamente</span>
+              <span>{i18n.t('graph.retry')}</span>
             </button>
           </div>
         </div>

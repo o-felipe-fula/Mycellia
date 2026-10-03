@@ -11,6 +11,7 @@ import { syntaxTree, syntaxHighlighting, ensureSyntaxTree } from '@codemirror/la
 import { history, historyKeymap, standardKeymap } from '@codemirror/commands';
 import { autocompletion } from '@codemirror/autocomplete';
 import { useAppStore } from '../store/appStore';
+import { useTranslation } from 'react-i18next';
 import { fileTreeChangedEffect } from '../editor/shared';
 import { mycelliaTheme, mycelliaHighlightStyle } from '../editor/theme';
 import { mermaidThemePlugin } from '../editor/mermaid';
@@ -47,6 +48,7 @@ export default function MarkdownEditor({ content, onChange }: MarkdownEditorProp
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const decorationsCompartment = useRef(new Compartment());
+  const { t } = useTranslation();
   const { activeTab, fileTree, renameItem, editorSourceMode, toggleEditorSourceMode, pendingScrollToHeading, setPendingScrollToHeading, spellcheckEnabled } = useAppStore();
 
   const filename = activeTab ? activeTab.split('\\').pop()?.split('/').pop()?.replace('.md', '') || '' : '';
@@ -82,14 +84,14 @@ export default function MarkdownEditor({ content, onChange }: MarkdownEditorProp
   const handleRename = async (newValue: string) => {
     const trimmed = newValue.trim();
     if (!trimmed) {
-      triggerError("O nome do arquivo não pode ser vazio");
+      triggerError(t('editor.emptyName'));
       setTitle(filename);
       return;
     }
 
     const invalidChars = new RegExp('[\\\\/:*?"<>|]');
     if (invalidChars.test(trimmed)) {
-      triggerError("O nome do arquivo contém caracteres inválidos. Não use: \\ / : * ? \" < > |");
+      triggerError(t('editor.invalidChars'));
       setTitle(filename);
       return;
     }
@@ -409,17 +411,13 @@ export default function MarkdownEditor({ content, onChange }: MarkdownEditorProp
             onBlur={handleBlur}
             onKeyDown={handleKeyDown}
             className="flex-1 min-w-0 bg-transparent border-b border-transparent focus:border-[var(--border-strong)] outline-none text-[27px] font-display font-semibold text-[var(--text-primary)] py-1 transition-all"
-            placeholder="Sem título"
+            placeholder={t('editor.untitled')}
           />
           {/* E1.6 (Spec 27): toggle Edição ↔ Fonte (mostra o modo ATUAL; Ctrl+E também alterna) */}
           <button
             onClick={() => toggleEditorSourceMode()}
-            title={
-              editorSourceMode
-                ? 'Modo Fonte: markdown cru, sem render — clique (ou Ctrl+E) para voltar à Edição'
-                : 'Modo Edição: preview ao vivo — clique (ou Ctrl+E) para ver o markdown cru'
-            }
-            aria-label="Alternar modo de exibição da nota"
+            title={editorSourceMode ? t('editor.modeSourceTooltip') : t('editor.modeEditTooltip')}
+            aria-label={t('editor.modeAria')}
             className={`flex-shrink-0 flex items-center gap-1.5 rounded-md px-2 py-1 text-xs border transition-colors cursor-pointer ${
               editorSourceMode
                 ? 'text-[var(--accent)] border-[var(--accent-muted)] bg-[var(--accent-muted)]'
@@ -427,7 +425,7 @@ export default function MarkdownEditor({ content, onChange }: MarkdownEditorProp
             }`}
           >
             {editorSourceMode ? <Code2 className="w-3.5 h-3.5" /> : <PenLine className="w-3.5 h-3.5" />}
-            <span>{editorSourceMode ? 'Fonte' : 'Edição'}</span>
+            <span>{editorSourceMode ? t('editor.modeSource') : t('editor.modeEdit')}</span>
           </button>
           {error && (
             <div className="absolute top-full left-0 mt-1 text-xs text-[var(--danger)] font-sans animate-in fade-in duration-200 z-10 bg-[var(--substrate-raised)] border border-[var(--border-default)] px-2 py-1 rounded shadow-lg">

@@ -8,6 +8,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
 import { useAppStore } from '../store/appStore';
 import { getFileKind } from '../utils/fileKind';
+import { applyLanguage } from '../i18n';
 
 interface MockElement {
   id: string;
@@ -69,6 +70,19 @@ describe('E4 Fatia 2 — ExcalidrawEditor (.excalidraw)', () => {
     expect(screen.getByTestId('excalidraw-mock')).toBeTruthy();
     const initialData = lastExcalidrawProps.initialData as { elements: MockElement[] };
     expect(initialData.elements.map((e) => e.id)).toEqual(['a', 'b']);
+  });
+
+  it('D0 (Spec 33): langCode do Excalidraw segue o idioma do app (fix do review 30/07)', () => {
+    useAppStore.setState({ language: 'pt-BR' });
+    const { unmount } = render(<ExcalidrawEditor content={SAVED_SCENE} onChange={vi.fn()} />);
+    expect(lastExcalidrawProps.langCode).toBe('pt-BR');
+    unmount();
+
+    useAppStore.setState({ language: 'en' });
+    applyLanguage('en');
+    render(<ExcalidrawEditor content={SAVED_SCENE} onChange={vi.fn()} />);
+    expect(lastExcalidrawProps.langCode).toBe('en');
+    useAppStore.setState({ language: 'pt-BR' });
   });
 
   it('DIRTY-GATE: onChange com a MESMA scene version (pan/zoom/seleção) não gera save', () => {

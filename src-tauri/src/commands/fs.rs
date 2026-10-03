@@ -1832,6 +1832,7 @@ mod tests {
             editor_wide_mode: false,
             right_panel_width: 300,
             spellcheck_enabled: true,
+            language: "auto".to_string(),
         };
         crate::commands::config::save_config(handle.clone(), config).unwrap();
 
@@ -1890,6 +1891,7 @@ mod tests {
             editor_wide_mode: false,
             right_panel_width: 300,
             spellcheck_enabled: true,
+            language: "auto".to_string(),
         };
         crate::commands::config::save_config(handle.clone(), config).unwrap();
 
@@ -2072,6 +2074,7 @@ mod tests {
             editor_wide_mode: false,
             right_panel_width: 300,
             spellcheck_enabled: true,
+            language: "auto".to_string(),
         };
         crate::commands::config::save_config(handle.clone(), config).unwrap();
 

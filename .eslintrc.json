@@ -19,7 +19,8 @@
   "plugins": [
     "react",
     "react-hooks",
-    "@typescript-eslint"
+    "@typescript-eslint",
+    "i18next"
   ],
   "settings": {
     "react": {
@@ -32,5 +33,21 @@
     "@typescript-eslint/no-explicit-any": "warn",
     "no-unused-vars": "off",
     "@typescript-eslint/no-unused-vars": ["warn", { "argsIgnorePattern": "^_" }]
-  }
+  },
+  "overrides": [
+    {
+      "files": ["src/components/**/*.tsx", "src/App.tsx"],
+      "excludedFiles": ["src/test/**"],
+      "rules": {
+        "i18next/no-literal-string": [
+          "error",
+          {
+            "mode": "jsx-text-only",
+            "jsx-attributes": { "include": ["title", "placeholder", "aria-label", "alt", "confirmLabel"] },
+            "words": { "exclude": ["Mycellia", "MYCELLIA", "true / false", "true", "false", "·", "•", ":", "⚠️", "✕", "×", "pdf", "2D", "3D", "LF", "CRLF"] }
+          }
+        ]
+      }
+    }
+  ]
 }

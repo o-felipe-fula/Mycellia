@@ -22,7 +22,7 @@ describe('CommandPalette (E7)', () => {
   });
 
   it('renderiza a lista de comandos e o input focado', () => {
-    render(<CommandPalette onClose={vi.fn()} onNewNote={vi.fn()} />);
+    render(<CommandPalette onClose={vi.fn()} onNewNote={vi.fn()} onNewCanvas={vi.fn()} />);
     const input = screen.getByPlaceholderText('Digite um comando…');
     expect(input).toHaveFocus();
     expect(screen.getByText('Nova nota')).toBeInTheDocument();
@@ -30,7 +30,7 @@ describe('CommandPalette (E7)', () => {
   });
 
   it('filtra por busca fuzzy (substring e subsequência)', () => {
-    render(<CommandPalette onClose={vi.fn()} onNewNote={vi.fn()} />);
+    render(<CommandPalette onClose={vi.fn()} onNewNote={vi.fn()} onNewCanvas={vi.fn()} />);
     const input = screen.getByPlaceholderText('Digite um comando…');
 
     // substring
@@ -44,7 +44,7 @@ describe('CommandPalette (E7)', () => {
   });
 
   it('estado vazio quando nada casa', () => {
-    render(<CommandPalette onClose={vi.fn()} onNewNote={vi.fn()} />);
+    render(<CommandPalette onClose={vi.fn()} onNewNote={vi.fn()} onNewCanvas={vi.fn()} />);
     fireEvent.change(screen.getByPlaceholderText('Digite um comando…'), {
       target: { value: 'zzzxyzq' },
     });
@@ -53,7 +53,7 @@ describe('CommandPalette (E7)', () => {
 
   it('Enter executa o comando ativo e fecha; a ação do store roda', () => {
     const onClose = vi.fn();
-    render(<CommandPalette onClose={onClose} onNewNote={vi.fn()} />);
+    render(<CommandPalette onClose={onClose} onNewNote={vi.fn()} onNewCanvas={vi.fn()} />);
     const input = screen.getByPlaceholderText('Digite um comando…');
 
     fireEvent.change(input, { target: { value: 'tema' } });
@@ -66,7 +66,7 @@ describe('CommandPalette (E7)', () => {
   it('setas navegam e Enter roda o item destacado', () => {
     const onNewNote = vi.fn();
     const onClose = vi.fn();
-    render(<CommandPalette onClose={onClose} onNewNote={onNewNote} />);
+    render(<CommandPalette onClose={onClose} onNewNote={onNewNote} onNewCanvas={vi.fn()} />);
     const input = screen.getByPlaceholderText('Digite um comando…');
 
     // 1º item é "Nova nota" (índice 0). Desce 1 → tema. Volta 1 → nova nota.
@@ -79,7 +79,7 @@ describe('CommandPalette (E7)', () => {
 
   it('clicar num comando executa e fecha', () => {
     const onClose = vi.fn();
-    render(<CommandPalette onClose={onClose} onNewNote={vi.fn()} />);
+    render(<CommandPalette onClose={onClose} onNewNote={vi.fn()} onNewCanvas={vi.fn()} />);
 
     fireEvent.click(screen.getByText('Painel de tags'));
     expect(useAppStore.getState().setRightView).toHaveBeenCalledWith('tags');
@@ -88,21 +88,21 @@ describe('CommandPalette (E7)', () => {
 
   it('Esc fecha sem executar nada', () => {
     const onClose = vi.fn();
-    render(<CommandPalette onClose={onClose} onNewNote={vi.fn()} />);
+    render(<CommandPalette onClose={onClose} onNewNote={vi.fn()} onNewCanvas={vi.fn()} />);
     fireEvent.keyDown(screen.getByPlaceholderText('Digite um comando…'), { key: 'Escape' });
     expect(onClose).toHaveBeenCalled();
     expect(useAppStore.getState().toggleTheme).not.toHaveBeenCalled();
   });
 
   it('E6: comandos de export só aparecem com uma nota aberta', () => {
-    const { rerender } = render(<CommandPalette onClose={vi.fn()} onNewNote={vi.fn()} />);
+    const { rerender } = render(<CommandPalette onClose={vi.fn()} onNewNote={vi.fn()} onNewCanvas={vi.fn()} />);
     // Sem nota: nada de export
     expect(screen.queryByText('Exportar nota como HTML')).toBeNull();
     expect(screen.queryByText('Imprimir / Exportar PDF')).toBeNull();
 
     // Com nota aberta: os dois aparecem
     useAppStore.setState({ activeTab: 'C:\\Vault\\Nota.md', activeNoteContent: '# Oi' });
-    rerender(<CommandPalette onClose={vi.fn()} onNewNote={vi.fn()} />);
+    rerender(<CommandPalette onClose={vi.fn()} onNewNote={vi.fn()} onNewCanvas={vi.fn()} />);
     expect(screen.getByText('Exportar nota como HTML')).toBeInTheDocument();
     expect(screen.getByText('Imprimir / Exportar PDF')).toBeInTheDocument();
   });
