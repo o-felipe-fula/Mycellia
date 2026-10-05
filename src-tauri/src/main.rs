@@ -50,6 +50,10 @@ fn main() {
             commands::spellcheck::add_personal_word,
         ])
         .setup(|app| {
+            // D1-Q1 (Spec 35): migra a pasta de estado do identifier antigo ANTES de
+            // qualquer comando ler config. Fail-soft: nunca impede o app de subir.
+            commands::migrate_dirs::run(app.handle());
+
             #[cfg(target_os = "macos")]
             {
                 let menu = tauri::menu::Menu::default(app.handle())?;

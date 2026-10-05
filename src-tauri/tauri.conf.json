@@ -1,9 +1,10 @@
 {
   "productName": "Mycellia",
   "version": "0.6.1",
-  "identifier": "com.mycellia.app",
+  "identifier": "com.mycellia.desktop",
   "bundle": {
     "active": true,
+    "publisher": "Mycellia",
     "targets": ["nsis", "app", "dmg", "deb", "rpm", "appimage"],
     "category": "Productivity",
     "shortDescription": "Editor de conhecimento .md local-first, compatível com Obsidian",

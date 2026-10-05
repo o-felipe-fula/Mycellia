@@ -1,6 +1,7 @@
 pub mod config;
 pub mod fs;
 pub mod index_db;
+pub mod migrate_dirs;
 pub mod parser;
 pub mod graph_positions;
 pub mod spellcheck;
